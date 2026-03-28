@@ -1,0 +1,323 @@
+{
+  "name": "Manga Automation - Multi-Platform Publisher",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trigger-publisher",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "trigger-publisher"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT v.id, v.file_path, v.caption, v.hashtags, v.duration_secs, v.file_size_mb, m.title AS manga_title FROM videos v JOIN manga_chapters mc ON v.chapter_id = mc.id JOIN manga m ON mc.manga_id = m.id WHERE v.id = {{ $json.body.video_id }} LIMIT 1"
+      },
+      "id": "fetch-video-details",
+      "name": "DB: Fetch Video Details",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        460,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aJSEMdFYhwBqNlYS",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-video",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-video-exists",
+      "name": "Video Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, username, ig_user_id, access_token, account_status FROM instagram_accounts WHERE account_status = 'active' AND (last_post_at IS NULL OR last_post_at < NOW() - INTERVAL '4 hours') ORDER BY last_post_at ASC NULLS FIRST LIMIT 1"
+      },
+      "id": "select-instagram-account",
+      "name": "DB: Select Instagram Account",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        900,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aJSEMdFYhwBqNlYS",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/{{ $node[\"DB: Select Instagram Account\"].json.ig_user_id }}/media",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "video_url",
+              "value": "={{ $node[\"DB: Fetch Video Details\"].json.file_path }}"
+            },
+            {
+              "name": "caption",
+              "value": "={{ ($node[\"DB: Fetch Video Details\"].json.caption || '') + ' ' + ($node[\"DB: Fetch Video Details\"].json.hashtags || []).map(h => h.startsWith('#') ? h : '#' + h).join(' ') }}"
+            },
+            {
+              "name": "media_type",
+              "value": "REELS"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $node[\"DB: Select Instagram Account\"].json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "instagram-create-container",
+      "name": "Instagram: Create Media Container",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        420
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/{{ $node[\"DB: Select Instagram Account\"].json.ig_user_id }}/media_publish",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "creation_id",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $node[\"DB: Select Instagram Account\"].json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "instagram-publish-media",
+      "name": "Instagram: Publish Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        420
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO published_videos (video_id, account_id, platform, instagram_media_id, instagram_url, caption, hashtags, published_at, status) VALUES ({{ $node[\"DB: Fetch Video Details\"].json.id }}, {{ $node[\"DB: Select Instagram Account\"].json.id }}, 'instagram', '{{ $json.id || \"\" }}', 'https://www.instagram.com/p/{{ $json.id || \"\" }}/', '{{ $node[\"DB: Fetch Video Details\"].json.caption || \"\" }}', ARRAY[{{ ($node[\"DB: Fetch Video Details\"].json.hashtags || []).map(h => `'${h}'`).join(',') || \"'#manga'\" }}]::text[], NOW(), 'published') RETURNING id"
+      },
+      "id": "save-instagram-publish",
+      "name": "DB: Save Instagram Publish",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1560,
+        420
+      ],
+      "continueOnFail": true,
+      "credentials": {
+        "postgres": {
+          "id": "aJSEMdFYhwBqNlYS",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE instagram_accounts SET last_post_at = NOW(), total_posts = total_posts + 1 WHERE id = {{ $node[\"DB: Select Instagram Account\"].json.id }}"
+      },
+      "id": "update-instagram-account",
+      "name": "DB: Update Instagram Account",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1780,
+        420
+      ],
+      "continueOnFail": true,
+      "credentials": {
+        "postgres": {
+          "id": "aJSEMdFYhwBqNlYS",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8080/upload-tiktok",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ { \"video_id\": $json.id } }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "tiktok-upload-worker",
+      "name": "TikTok: Upload via Python Worker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        200
+      ],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "DB: Fetch Video Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB: Fetch Video Details": {
+      "main": [
+        [
+          {
+            "node": "Video Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Video Exists?": {
+      "main": [
+        [
+          {
+            "node": "DB: Select Instagram Account",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "TikTok: Upload via Python Worker",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "DB: Select Instagram Account": {
+      "main": [
+        [
+          {
+            "node": "Instagram: Create Media Container",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram: Create Media Container": {
+      "main": [
+        [
+          {
+            "node": "Instagram: Publish Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram: Publish Media": {
+      "main": [
+        [
+          {
+            "node": "DB: Save Instagram Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB: Save Instagram Publish": {
+      "main": [
+        [
+          {
+            "node": "DB: Update Instagram Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-03-19T05:00:00.000Z",
+  "versionId": "2",
+  "id": "T8jQxlpEeEHJ5SeY"
+}

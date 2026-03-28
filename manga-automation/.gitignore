@@ -1,0 +1,14 @@
+venv/
+*.pyc
+__pycache__/
+.env
+data/panels/
+data/videos/
+data/logs/
+data/n8n/
+data/redis/
+data/postgres/
+*.log
+node_modules/
+dist/
+.n8n/

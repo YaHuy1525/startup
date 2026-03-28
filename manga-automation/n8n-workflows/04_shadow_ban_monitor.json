@@ -1,0 +1,264 @@
+{
+  "name": "Manga Automation - Shadow Ban Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "cron-shadow-ban",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/agents/detect-shadow-ban",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "call-shadow-ban-agent",
+      "name": "Agent: Detect Shadow Bans",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 15000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse agent response\nconst response = $input.item.json;\nconst result = response.result || '';\n\n// Extract shadow-banned accounts mentioned in the result text\nconst isFlagged = result.toLowerCase().includes('shadow') && result.toLowerCase().includes('banned');\n\nreturn [{\n  json: {\n    success: response.success,\n    agentReport: result,\n    hasNewBans: isFlagged\n  }\n}];"
+      },
+      "id": "parse-agent-result",
+      "name": "Code: Parse Agent Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, username, shadow_ban_detected_at FROM tiktok_accounts WHERE shadow_banned = true AND account_status != 'banned'"
+      },
+      "id": "fetch-banned-accounts",
+      "name": "DB: Get Banned Accounts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        900,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aJSEMdFYhwBqNlYS",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-banned",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "has-banned-accounts",
+      "name": "Has Banned Accounts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE tiktok_accounts SET account_status = 'paused' WHERE id = {{ $json.id }} AND shadow_banned = true"
+      },
+      "id": "pause-banned-accounts",
+      "name": "DB: Pause Banned Accounts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1340,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aJSEMdFYhwBqNlYS",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData"
+      },
+      "id": "wait-all-paused",
+      "name": "Wait: All Accounts Paused",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build summary of shadow ban run\nconst allItems = $input.all();\nconst pausedCount = allItems.length;\n\nreturn [{\n  json: {\n    status: 'complete',\n    pausedAccounts: pausedCount,\n    message: `Shadow ban monitor: ${pausedCount} account(s) paused`,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "build-summary",
+      "name": "Code: Build Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// No banned accounts detected, log clean run\nreturn [{\n  json: {\n    status: 'clean',\n    message: 'Shadow ban monitor: no banned accounts detected',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "log-clean",
+      "name": "Code: Log Clean Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Every 6 Hours": {
+      "main": [
+        [
+          {
+            "node": "Agent: Detect Shadow Bans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent: Detect Shadow Bans": {
+      "main": [
+        [
+          {
+            "node": "Code: Parse Agent Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Parse Agent Result": {
+      "main": [
+        [
+          {
+            "node": "DB: Get Banned Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB: Get Banned Accounts": {
+      "main": [
+        [
+          {
+            "node": "Has Banned Accounts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Banned Accounts?": {
+      "main": [
+        [
+          {
+            "node": "DB: Pause Banned Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Log Clean Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB: Pause Banned Accounts": {
+      "main": [
+        [
+          {
+            "node": "Wait: All Accounts Paused",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: All Accounts Paused": {
+      "main": [
+        [
+          {
+            "node": "Code: Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-03-22T00:00:00.000Z",
+  "versionId": "1",
+  "id": "sEvVhYbcyDdmGfN9"
+}

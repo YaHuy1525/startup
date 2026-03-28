@@ -1,0 +1,55 @@
+# Python worker image — FFmpeg + ImageMagick + Playwright (Chromium)
+FROM python:3.11-slim
+
+# System dependencies: FFmpeg for video, Node.js for TiktokAutoUploader JS signing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    imagemagick \
+    bc \
+    wget \
+    gnupg \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use a shared path for all Playwright browsers (Python + Node.js)
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+WORKDIR /app
+
+# Install Python dependencies first (layer cache)
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Python Playwright Chromium to the shared path
+RUN playwright install chromium --with-deps
+
+# Install Node.js playwright-chromium at a Linux-compatible path so the
+# tiktok-signature script works (the mounted Windows node_modules won't work on Linux)
+WORKDIR /sig-deps
+RUN npm install playwright-chromium@1.10.0
+RUN node -e "require('playwright-chromium').chromium.executablePath()" 2>/dev/null || \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 node -e "process.exit(0)" || true
+
+# Make NODE_PATH point to the Linux-compatible modules so Node.js prefers
+# /sig-deps over the mounted (Windows) node_modules when resolving playwright-chromium
+ENV NODE_PATH=/sig-deps/node_modules
+
+WORKDIR /app
+
+# Copy scripts
+COPY scripts/ ./scripts/
+COPY scripts-bash/ ./scripts-bash/
+RUN chmod +x scripts-bash/generate_manga_video.sh
+
+# Create data directories and shared browser path
+RUN mkdir -p /data/panels /data/videos /data/logs /data/music /ms-playwright
+
+# Non-root user — give ownership of shared paths
+RUN useradd -m -u 1000 manga
+RUN chown -R manga:manga /app /data /ms-playwright /sig-deps
+
+USER manga
+
+# Keep container alive; n8n runs scripts via docker exec or HTTP calls
+CMD ["python3", "-u", "-m", "scripts.worker"]

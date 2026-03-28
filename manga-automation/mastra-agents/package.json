@@ -1,0 +1,34 @@
+{
+    "name": "manga-agents",
+    "version": "1.0.0",
+    "description": "Mastra AI Agents for Automated Manga Panel Content System",
+    "main": "dist/server.js",
+    "scripts": {
+        "dev": "tsx watch src/server.ts",
+        "build": "tsc",
+        "start": "node dist/server.js",
+        "test": "jest"
+    },
+    "dependencies": {
+        "@ai-sdk/anthropic": "^3.0.53",
+        "@anthropic-ai/sdk": "^0.27.0",
+        "@mastra/core": "^1.8.0",
+        "@types/cors": "^2.8.19",
+        "axios": "^1.7.7",
+        "cors": "^2.8.6",
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2",
+        "pg": "^8.12.0",
+        "puppeteer": "^23.0.0",
+        "redis": "^4.7.0",
+        "winston": "^3.14.2",
+        "zod": "^3.23.8"
+    },
+    "devDependencies": {
+        "@types/express": "^4.17.21",
+        "@types/node": "^22.0.0",
+        "@types/pg": "^8.11.6",
+        "tsx": "^4.17.0",
+        "typescript": "^5.5.4"
+    }
+}

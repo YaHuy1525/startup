@@ -1,0 +1,333 @@
+{
+  "name": "Manga Automation - MAL Trend Detection & Chapter Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 4
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every 4 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.myanimelist.net/v2/manga/ranking?ranking_type=manga&limit=20&fields=id,title,mean,rank,popularity,status,genres",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-MAL-CLIENT-ID",
+              "value": "02d721ff8b92ebf2f9b2760d2a672c68"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "mal-get-trending",
+      "name": "MAL: Get Trending Manga",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform MAL API response into DB-ready rows\nconst items = $input.item.json.data || [];\n\nfunction mapStatus(s) {\n  const map = {\n    currently_publishing: 'ongoing',\n    finished: 'completed',\n    on_hiatus: 'hiatus',\n    discontinued: 'completed',\n    not_yet_published: 'ongoing'\n  };\n  return map[s] || 'ongoing';\n}\n\nfunction calcScore(mean, rank, popularity) {\n  const ratingScore  = ((mean - 7.0) / 2.5) * 60;\n  const rankScore    = Math.max(0, 25 - rank / 4);\n  const popScore     = Math.max(0, 15 - popularity / 20);\n  return parseFloat(Math.min(100, Math.max(0, ratingScore + rankScore + popScore)).toFixed(2));\n}\n\nfunction esc(s) { return String(s).replace(/'/g, \"''\"); }\n\nreturn items.map(item => {\n  const mal_id         = item.node.id;\n  const title          = esc(item.node.title);\n  const genre          = esc((item.node.genres || []).map(g => g.name).join('/'));\n  const tags           = (item.node.genres || []).map(g => g.name.toLowerCase());\n  const status         = mapStatus(item.node.status);\n  const trending_score = calcScore(\n    item.node.mean       || 7.0,\n    item.ranking?.rank   || 999,\n    item.node.popularity || 500\n  );\n  const tagsSql = tags.map(t => `'${esc(t)}'`).join(',') || \"''\";\n\n  const sql = `INSERT INTO manga (title, mal_id, genre, tags, status, trending_score, is_active, updated_at) VALUES ('${title}', ${mal_id}, '${genre}', ARRAY[${tagsSql}]::text[], '${status}', ${trending_score}, true, NOW()) ON CONFLICT (title) DO UPDATE SET mal_id = EXCLUDED.mal_id, genre = EXCLUDED.genre, tags = EXCLUDED.tags, status = EXCLUDED.status, trending_score = EXCLUDED.trending_score, is_active = true, updated_at = NOW()`;\n\n  return { json: { mal_id, title, genre, tags, status, trending_score, sql } };\n});"
+      },
+      "id": "transform-mal-data",
+      "name": "Code: Transform MAL Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}"
+      },
+      "id": "upsert-manga-db",
+      "name": "DB: Upsert Manga (Supabase)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        900,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "2",
+          "name": "Supabase PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData"
+      },
+      "id": "aggregate-upserts",
+      "name": "Wait: All Upserts Done",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/pipeline/fetch-chapters",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "fetch-chapters-backend",
+      "name": "Backend: Fetch Latest Chapters",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 10000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract only newly fetched chapters (not already_processed or error)\nconst results = $input.item.json.results || [];\n\nconst newChapters = results.filter(r => r.status === 'fetched' && r.chapterId);\n\nif (newChapters.length === 0) {\n  // Return a sentinel so the IF node can detect 'nothing new'\n  return [{ json: { hasNew: false, chapterId: null } }];\n}\n\nreturn newChapters.map(r => ({\n  json: {\n    hasNew: true,\n    chapterId: r.chapterId,\n    title: r.title,\n    panels: r.panels\n  }\n}));"
+      },
+      "id": "filter-new-chapters",
+      "name": "Code: Filter New Chapters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-new-chapters",
+              "leftValue": "={{ $json.hasNew }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-has-new",
+      "name": "Has New Chapters?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/agents/select-panels",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chapterId",
+              "value": "={{ $json.chapterId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "call-panel-selector",
+      "name": "Agent: Select Best Panels",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2000,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 30000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/agents/select-music",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chapterId",
+              "value": "={{ $json.chapterId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "call-music-selector",
+      "name": "Agent: Select Background Music",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2200,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Every 4 Hours": {
+      "main": [
+        [
+          {
+            "node": "MAL: Get Trending Manga",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MAL: Get Trending Manga": {
+      "main": [
+        [
+          {
+            "node": "Code: Transform MAL Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Transform MAL Data": {
+      "main": [
+        [
+          {
+            "node": "DB: Upsert Manga from MAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB: Upsert Manga (Supabase)": {
+      "main": [
+        [
+          {
+            "node": "Wait: All Upserts Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: All Upserts Done": {
+      "main": [
+        [
+          {
+            "node": "Backend: Fetch Latest Chapters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backend: Fetch Latest Chapters": {
+      "main": [
+        [
+          {
+            "node": "Code: Filter New Chapters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Filter New Chapters": {
+      "main": [
+        [
+          {
+            "node": "Has New Chapters?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has New Chapters?": {
+      "main": [
+        [
+          {
+            "node": "Agent: Select Best Panels",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Agent: Select Best Panels": {
+      "main": [
+        [
+          {
+            "node": "Agent: Select Background Music",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-03-19T05:00:00.000Z",
+  "versionId": "3"
+}
