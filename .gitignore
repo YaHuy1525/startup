@@ -1,0 +1,97 @@
+# ==============================================================================
+# Node.js & Frontend
+# ==============================================================================
+node_modules/
+dist/
+dist-ssr/
+build/
+.next/
+out/
+*.tsbuildinfo
+.npm
+.eslintcache
+.stylelintcache
+
+# ==============================================================================
+# Python
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+.env_python/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ==============================================================================
+# Environment Variables
+# ==============================================================================
+.env
+.env.*
+!.env.example
+!.env.template
+/manga-automation/.env
+
+# ==============================================================================
+# OS Files
+# ==============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ==============================================================================
+# IDEs & Editors
+# ==============================================================================
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+/.cursor
+/.kiro
+
+# ==============================================================================
+# Logs & General
+# ==============================================================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==============================================================================
+# Project-Specific Exclusions
+# ==============================================================================
+/tiktok-agents
+test-manga-agents
+/meme-agents
+/TiktokAutoUploader
