@@ -54,3 +54,15 @@ export interface AnalyticsData {
     comments: number;
     shares: number;
 }
+
+// Re-export QueueManager types
+export { QueueEntry, QueueStatus } from '../tools/queueManager';
+
+// Re-export ChapterAnalyzer types
+export { 
+  Panel, 
+  VideoSplitPlan, 
+  VideoSegment, 
+  VideoTemplate, 
+  EffectsConfig 
+} from '../tools/chapterAnalyzer';

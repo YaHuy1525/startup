@@ -6,22 +6,29 @@
         "build": "remotion bundle src/index.ts --out-dir build",
         "render": "npx remotion render src/index.ts MangaRecap",
         "preview": "npx remotion preview src/index.ts",
-        "compositions": "npx remotion compositions src/index.ts"
+        "compositions": "npx remotion compositions src/index.ts",
+        "test": "jest"
     },
     "dependencies": {
         "@remotion/cli": "4.0.261",
-        "@remotion/transitions": "4.0.261",
         "@remotion/media-utils": "4.0.261",
         "@remotion/renderer": "4.0.261",
-        "remotion": "4.0.261",
+        "@remotion/transitions": "4.0.261",
+        "pg": "^8.20.0",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
+        "remotion": "4.0.261",
         "zod": "^3.23.8"
     },
     "devDependencies": {
-        "@types/react": "^19.0.0",
+        "@types/jest": "^30.0.0",
         "@types/node": "^22.0.0",
-        "typescript": "^5.5.4",
-        "tsx": "^4.17.0"
+        "@types/pg": "^8.20.0",
+        "@types/react": "^19.0.0",
+        "fast-check": "^4.6.0",
+        "jest": "^30.3.0",
+        "ts-jest": "^29.4.6",
+        "tsx": "^4.17.0",
+        "typescript": "^5.5.4"
     }
 }

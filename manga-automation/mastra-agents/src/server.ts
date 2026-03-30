@@ -329,20 +329,20 @@ const imagePathToDataUri = (filePath: string): string => {
 
 /** POST /pipeline/render-video
  * Renders a manga recap video using Remotion instead of FFmpeg.
- * Body: { chapterId: number }
+ * Body: { chapterId: number, templateId?: number, randomTemplate?: boolean }
  *
  * Flow:
  *   1. Query selected_panels for the chapter
  *   2. Build Remotion props JSON from panel paths + motion tags
- *   3. Spawn render-video.ts CLI
+ *   3. Spawn render-video.ts CLI with optional template flags
  *   4. Insert result into videos table
- *   5. Return { videoId, filePath, durationSecs, fileSizeMb }
+ *   5. Return { videoId, filePath, durationSecs, fileSizeMb, template }
  */
 app.post('/pipeline/render-video', async (req: Request, res: Response) => {
-    const { chapterId } = req.body;
+    const { chapterId, templateId, randomTemplate } = req.body;
     if (!chapterId) return res.status(400).json({ error: 'chapterId required' });
 
-    logger.info('Pipeline: render-video started', { chapterId });
+    logger.info('Pipeline: render-video started', { chapterId, templateId, randomTemplate });
     try {
         // 1. Fetch selected panels + manga metadata
         const panelResult = await db.query(
@@ -393,6 +393,7 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
             chapterText: `Chapter ${row.chapter_number}`,
             audioSrc: row.music_path || null,
             audioDuckingVolume: 0.4,
+            templateId: templateId || undefined, // Include templateId if provided
         };
 
         // 3. Write temp props file and render
@@ -401,9 +402,15 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
 
         logger.info(`Rendering ${remotionPanels.length} panels via Remotion`, { chapterId, outputPath });
 
-        const renderOutput = execSync(
-            `npx tsx src/render-video.ts --props "${propsPath}" --output "${outputPath}"`,
-            {
+        // Build render command with optional template flags
+        let renderCmd = `npx tsx src/render-video.ts --props "${propsPath}" --output "${outputPath}"`;
+        
+        // Add template flags if specified (CLI flags override props.templateId)
+        if (randomTemplate) {
+            renderCmd += ' --random-template';
+        }
+
+        const renderOutput = execSync(renderCmd, {
                 cwd: REMOTION_DIR,
                 encoding: 'utf-8',
                 timeout: 10 * 60 * 1000, // 10 min
@@ -436,6 +443,7 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
             filePath: renderResult.filePath,
             durationSecs: renderResult.durationSecs,
             fileSizeMb: renderResult.fileSizeMb,
+            template: renderResult.template || null,
         });
     } catch (err: any) {
         logger.error('render-video failed', { error: err.message, stderr: err.stderr });

@@ -1,7 +1,7 @@
 import React from "react";
 import { AbsoluteFill, Img, useCurrentFrame, interpolate } from "remotion";
 
-type MotionType = "zoom_center" | "pan_right" | "pan_up";
+type MotionType = "zoom_center" | "pan_right" | "pan_up" | "pan_down";
 
 interface KenBurnsPanelProps {
     imagePath: string;
@@ -20,6 +20,7 @@ interface KenBurnsPanelProps {
  *   zoom_center  → Scale 1.0→1.25 toward center (character reveals, close-ups)
  *   pan_right    → Slow horizontal drift (action flow, wide scenes)
  *   pan_up       → Vertical drift upward (environmental establishing shots)
+ *   pan_down     → Vertical drift downward (dramatic reveals, top-to-bottom flow)
  */
 export const KenBurnsPanel: React.FC<KenBurnsPanelProps> = ({
     imagePath,
@@ -55,6 +56,13 @@ export const KenBurnsPanel: React.FC<KenBurnsPanelProps> = ({
         case "pan_up": {
             // Start zoomed to 1.2×, pan from bottom to top
             const translateY = interpolate(progress, [0, 1], [5, -5]);
+            transform = `scale(1.2) translateY(${translateY}%)`;
+            break;
+        }
+
+        case "pan_down": {
+            // Start zoomed to 1.2×, pan from top to bottom (reverse of pan_up)
+            const translateY = interpolate(progress, [0, 1], [-5, 5]);
             transform = `scale(1.2) translateY(${translateY}%)`;
             break;
         }

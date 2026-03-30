@@ -30,6 +30,7 @@ export const RemotionRoot: React.FC = () => {
                 }}
                 calculateMetadata={({ props }) => {
                     const TRANSITION_FRAMES = 15; // 0.5s crossfade
+                    const MIN_DURATION_FRAMES = FPS * 60; // 60 seconds minimum for TikTok Creator Rewards
                     const totalPanelFrames = props.panels.reduce(
                         (sum, p) => sum + p.durationInFrames,
                         0
@@ -38,7 +39,7 @@ export const RemotionRoot: React.FC = () => {
                     const transitionOverlap =
                         Math.max(0, props.panels.length - 1) * TRANSITION_FRAMES;
                     const totalFrames = Math.max(
-                        FPS, // Minimum 1 second
+                        MIN_DURATION_FRAMES, // Minimum 60 seconds for Creator Rewards eligibility
                         totalPanelFrames - transitionOverlap
                     );
                     return { durationInFrames: totalFrames };
