@@ -24,7 +24,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT sp.id AS selection_id, sp.chapter_id, sp.panels, mc.panel_urls, m.title FROM selected_panels sp JOIN manga_chapters mc ON sp.chapter_id = mc.id JOIN manga m ON mc.manga_id = m.id LEFT JOIN videos v ON sp.chapter_id = v.chapter_id WHERE v.id IS NULL ORDER BY sp.selected_at ASC LIMIT 5"
+        "query": "SELECT cpq.id AS queue_id, cpq.chapter_id, cpq.chapter_number, cpq.part_number, cpq.total_parts, mc.panel_urls, m.title FROM chapter_posting_queue cpq JOIN manga_chapters mc ON cpq.chapter_id = mc.id JOIN manga m ON mc.manga_id = m.id WHERE cpq.status = 'pending' ORDER BY cpq.priority DESC, cpq.chapter_number ASC LIMIT 5"
       },
       "id": "fetch-panel-queue",
       "name": "DB: Fetch Ready Panels",
@@ -52,7 +52,7 @@
           "conditions": [
             {
               "id": "check-id",
-              "leftValue": "={{ $json.selection_id }}",
+              "leftValue": "={{ $json.queue_id }}",
               "rightValue": 0,
               "operator": {
                 "type": "number",
@@ -80,8 +80,12 @@
         "bodyParameters": {
           "parameters": [
             {
-              "name": "chapterId",
-              "value": "={{ $json.chapter_id }}"
+              "name": "queueId",
+              "value": "={{ $json.queue_id }}"
+            },
+            {
+              "name": "randomTemplate",
+              "value": true
             }
           ]
         },

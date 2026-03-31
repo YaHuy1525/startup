@@ -1,6 +1,13 @@
 # Manga TikTok Automation System
 
-Fully automated pipeline that fetches trending manga from MangaDex, selects the best panels using Claude Vision, generates vertical TikTok videos with FFmpeg, and publishes them — all orchestrated by n8n.
+Fully automated pipeline that fetches trending manga from MangaDex, systematically posts all chapters in chronological order, generates professional vertical TikTok videos with Remotion effects, and publishes them with viral captions and strategic hashtags — all orchestrated by n8n.
+
+**New Features:**
+- **Queue-based chapter posting** - Posts all manga chapters oldest-to-latest (90+ videos/day)
+- **Manual chapter selection** - Webhook endpoint for on-demand chapter queuing
+- **Enhanced video generation** - Remotion-powered videos with Ken Burns effects and smooth transitions
+- **Viral caption system** - 5 proven caption formulas with emoji integration
+- **Strategic hashtag selection** - Tiered hashtag system (mega/core/niche) for maximum reach
 
 ## Architecture
 
@@ -8,14 +15,16 @@ Fully automated pipeline that fetches trending manga from MangaDex, selects the 
 n8n (every 4h)
   │
   ├─► TrendDetector Agent  → manga table
-  ├─► /pipeline/fetch-chapters → download panels
-  ├─► PanelSelector Agent (Claude Vision) → selected_panels
-  ├─► Python: generate_video.py (FFmpeg) → videos
-  ├─► CaptionGenerator Agent → caption + hashtags
+  ├─► /pipeline/populate-queue → chapter_posting_queue (all chapters)
+  ├─► /pipeline/render-video → Remotion videos with effects
+  ├─► /captions/generate → viral captions + strategic hashtags
   └─► Python: upload_tiktok.py (Playwright) → TikTok
 
 n8n (every 6h)
   └─► ShadowBanDetector Agent → pause banned accounts
+
+n8n (webhook)
+  └─► /webhook/queue-chapter → manual chapter selection
 ```
 
 ### Services
@@ -58,11 +67,12 @@ open http://localhost:5679              # admin / <N8N_PASSWORD>
 ### 5. Import n8n Workflows
 In the n8n UI (http://localhost:5679):
 1. Settings → Import from File
-2. Import all 4 files from `n8n-workflows/` in order:
-   - `01_trend_detection.json`
-   - `02_video_generation.json`
-   - `03_publisher.json`
-   - `04_shadow_ban_monitor.json`
+2. Import all 5 files from `n8n-workflows/` in order:
+   - `01_trend_detection.json` - Fetches trending manga and populates queue
+   - `02_video_generation.json` - Renders videos from queue with Remotion
+   - `03_publisher.json` - Generates captions/hashtags and uploads to TikTok
+   - `04_shadow_ban_monitor.json` - Monitors accounts for shadow bans
+   - `05_manual_chapter_selection.json` - Webhook for manual chapter queuing
 3. In each workflow, update the **PostgreSQL credential** to point to `postgres:5432` with your `DB_PASSWORD`
 4. Activate all workflows
 
@@ -124,19 +134,141 @@ python3 -m scripts.detect_shadow_ban --min-posts 5 --threshold 0.10
 
 ## Mastra Agent Endpoints
 
+### Agent Endpoints
 ```
 POST /agents/detect-trends        Run trend detection
 POST /agents/select-panels        Body: { chapterId: N }
 POST /agents/generate-caption     Body: { videoId: N }
 POST /agents/optimize             Run content optimization
 POST /agents/detect-shadow-ban    Run shadow ban detection
+```
 
+### Pipeline Endpoints
+```
 POST /pipeline/fetch-chapters     Fetch all active manga chapters
+POST /pipeline/populate-queue     Body: { manga_id: N } - Queue all chapters for a manga
+POST /pipeline/render-video       Body: { queueId: N, templateId?: N, randomTemplate?: boolean }
 GET  /pipeline/pending-chapters   Chapters not yet panel-selected
 GET  /pipeline/ready-videos       Videos ready to publish
 POST /pipeline/mark-published     Body: { videoId, platform, ... }
 GET  /pipeline/shadow-banned-accounts
 ```
+
+### Queue Management Endpoints
+```
+POST /webhook/queue-chapter       Body: { manga_id, chapter_number, priority? }
+                                  OR { manga_id, start_chapter, end_chapter, priority? }
+                                  - Manually queue specific chapters or chapter ranges
+```
+
+### Caption & Hashtag Endpoints
+```
+POST /captions/generate           Body: { videoId, mangaTitle?, chapterNumber?, genre?, formulaType? }
+                                  - Generate viral caption with strategic hashtags
+GET  /hashtags/select             Query: ?mangaTitle=...&genre=...&emotionalTone=...&isRecommendation=...
+                                  - Get strategic hashtag combination (1 mega + 2-3 core + 1-2 niche)
+```
+
+## Running Tests
+
+```bash
+# From project root
+pip install -r requirements.txt
+pytest tests/ -v
+```
+
+## Queue System
+
+The system now uses a database-backed queue to systematically post all manga chapters in chronological order, enabling 90+ videos per day.
+
+### How It Works
+
+1. **Queue Population**: When a manga is added, all chapters are queued oldest-to-latest
+2. **Priority Ordering**: Chapters are selected by priority (DESC) then chapter_number (ASC)
+3. **Status Tracking**: Each queue entry tracks status (pending/processing/posted/failed)
+4. **Automatic Progression**: System automatically moves to next manga when all chapters are posted
+
+### Manual Chapter Selection
+
+Queue specific chapters on-demand via webhook:
+
+```bash
+# Queue a single chapter with high priority
+curl -X POST http://localhost:3001/webhook/queue-chapter \
+  -H "Content-Type: application/json" \
+  -d '{"manga_id": 1, "chapter_number": "42", "priority": 100}'
+
+# Queue a chapter range
+curl -X POST http://localhost:3001/webhook/queue-chapter \
+  -H "Content-Type: application/json" \
+  -d '{"manga_id": 1, "start_chapter": "1", "end_chapter": "10", "priority": 100}'
+```
+
+Response includes queue position and IDs:
+```json
+{
+  "success": true,
+  "queued_count": 1,
+  "queue_ids": [123],
+  "queue_position": 5
+}
+```
+
+### Database Tables
+
+**chapter_posting_queue** - Tracks which chapters to post and in what order
+- `id`, `manga_id`, `chapter_id`, `chapter_number`
+- `priority` (default: 0, manual: 100)
+- `status` (pending/processing/posted/failed)
+- `scheduled_for`, `posted_at`, `video_id`
+- `part_number`, `total_parts` (for split chapters)
+
+**video_templates** - Predefined video styles and effects
+- `name`, `type`, `panel_duration`, `transition_type`
+- `effects_config` (JSON: zoom intensity, pan direction, etc.)
+
+**caption_templates** - Viral caption formulas
+- `formula_type` (emotional_hook/question/relatable/recommendation/statement_emoji)
+- `template` (e.g., "This scene from {manga} broke me {emoji}")
+- `emoji_suggestions`
+
+**hashtags** - Strategic hashtag database
+- `tag`, `tier` (1=mega, 2=core, 3=niche, 4=specific)
+- `category`, `views_estimate`
+
+## Video Generation
+
+Videos are now generated using Remotion with professional effects:
+
+### Video Templates
+
+- **Emotional Scene** - Slow zoom with crossfade transitions (5s per panel)
+- **Character Edit** - Dynamic zoom with slide transitions (3s per panel)
+- **Manga Recommendation** - Moderate zoom with zoom transitions (4s per panel)
+- **Panel Appreciation** - Intense zoom for single panels (8s per panel)
+- **Fast Paced Action** - Quick cuts with wipe transitions (2s per panel)
+
+### Motion Types
+
+- `zoom_center` - Scale 1.0 → 1.25 (character reveals, close-ups)
+- `pan_right` - Horizontal drift (action scenes, wide panels)
+- `pan_up` - Vertical drift (establishing shots, tall scenes)
+- `pan_down` - Vertical drift reverse
+
+### Caption Formulas
+
+1. **Emotional Hook** - "This scene from {manga} broke me 💔"
+2. **Question** - "Who's your favorite character in {manga}? 🤔"
+3. **Relatable** - "POV: You just finished {manga} chapter {chapter} 😱"
+4. **Recommendation** - "You NEED to read {manga} 🔥📚"
+5. **Statement + Emoji** - "{manga} chapter {chapter} hits different 💯"
+
+### Hashtag Strategy
+
+Each video gets 3-5 hashtags following the tiered system:
+- **1 mega hashtag** - #fyp or #foryou
+- **2-3 core hashtags** - #manga, #anime, #animetiktok
+- **1-2 niche hashtags** - Genre-specific (#shonen, #romance) or manga-specific
 
 ## Running Tests
 

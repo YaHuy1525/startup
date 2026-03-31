@@ -1,0 +1,269 @@
+{
+  "name": "Manga Automation - Manual Chapter Selection",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "queue-chapter",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook: Queue Chapter",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "queue-chapter"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate incoming webhook payload\nconst body = $input.item.json.body || {};\nconst manga_id = body.manga_id;\nconst chapter_number = body.chapter_number;\nconst start_chapter = body.start_chapter;\nconst end_chapter = body.end_chapter;\nconst priority = body.priority || 100;\n\n// Check if this is a single chapter or range request\nconst isRange = start_chapter && end_chapter;\n\nif (!manga_id) {\n  throw new Error('Missing required parameter: manga_id');\n}\n\nif (!isRange && !chapter_number) {\n  throw new Error('Missing required parameter: chapter_number or chapter range (start_chapter, end_chapter)');\n}\n\nreturn [{\n  json: {\n    manga_id,\n    chapter_number: chapter_number || null,\n    start_chapter: start_chapter || null,\n    end_chapter: end_chapter || null,\n    priority,\n    isRange\n  }\n}];"
+      },
+      "id": "validate-input",
+      "name": "Code: Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-range-check",
+              "leftValue": "={{ $json.isRange }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-is-range",
+      "name": "Is Range Request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/webhook/queue-chapter",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ { \"manga_id\": $json.manga_id, \"chapter_number\": $json.chapter_number, \"priority\": $json.priority } }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "queue-single-chapter",
+      "name": "Backend: Queue Single Chapter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/webhook/queue-chapter-range",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ { \"manga_id\": $json.manga_id, \"start_chapter\": $json.start_chapter, \"end_chapter\": $json.end_chapter, \"priority\": $json.priority } }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "queue-chapter-range",
+      "name": "Backend: Queue Chapter Range",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log successful queue operation\nconst result = $input.item.json;\nconst timestamp = new Date().toISOString();\n\nconsole.log(`[${timestamp}] Manual chapter queued successfully:`, JSON.stringify(result, null, 2));\n\nreturn [{ json: result }];"
+      },
+      "id": "log-success",
+      "name": "Code: Log Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://n8n:5678/webhook-test/video-generation-trigger",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ { \"trigger\": \"manual_chapter_selection\", \"queue_ids\": $json.queue_ids || [$json.queue_id] } }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "trigger-video-generation",
+      "name": "Webhook: Trigger Video Generation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format final response\nconst queueResult = $node[\"Code: Log Success\"].json;\nconst timestamp = new Date().toISOString();\n\nconst response = {\n  success: true,\n  message: 'Chapter(s) queued successfully',\n  timestamp,\n  data: queueResult\n};\n\nreturn [{ json: response }];"
+      },
+      "id": "format-response",
+      "name": "Code: Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle errors and format error response\nconst error = $input.item.json.error || $input.item.json;\nconst timestamp = new Date().toISOString();\n\nconsole.error(`[${timestamp}] Manual chapter selection error:`, error);\n\nconst errorResponse = {\n  success: false,\n  message: 'Failed to queue chapter(s)',\n  error: error.message || error.toString(),\n  timestamp\n};\n\nreturn [{ json: errorResponse }];"
+      },
+      "id": "handle-error",
+      "name": "Code: Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: Queue Chapter": {
+      "main": [
+        [
+          {
+            "node": "Code: Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Is Range Request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Range Request?": {
+      "main": [
+        [
+          {
+            "node": "Backend: Queue Chapter Range",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Backend: Queue Single Chapter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backend: Queue Single Chapter": {
+      "main": [
+        [
+          {
+            "node": "Code: Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backend: Queue Chapter Range": {
+      "main": [
+        [
+          {
+            "node": "Code: Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Log Success": {
+      "main": [
+        [
+          {
+            "node": "Webhook: Trigger Video Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: Trigger Video Generation": {
+      "main": [
+        [
+          {
+            "node": "Code: Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "handle-error"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-03-26T00:00:00.000Z",
+  "versionId": "1",
+  "id": "M5nQxChapterSelection"
+}

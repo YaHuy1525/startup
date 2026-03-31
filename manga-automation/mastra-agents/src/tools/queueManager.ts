@@ -126,6 +126,13 @@ export class QueueManager {
         [mangaId, chapterNumber]
       );
 
+      logger.info(`Chapter lookup result`, { 
+        mangaId, 
+        chapterNumber, 
+        rowCount: chapterResult.rows.length,
+        foundId: chapterResult.rows[0]?.id 
+      });
+
       if (chapterResult.rows.length === 0) {
         throw new Error(`Chapter ${chapterNumber} not found for manga ${mangaId}`);
       }
@@ -294,6 +301,33 @@ export class QueueManager {
       return queueEntries;
     } catch (error) {
       logger.error(`Error creating split chapter entries`, { error, mangaId, chapterId, chapterNumber, videoCount });
+      throw error;
+    }
+  }
+
+  /**
+   * Calculate queue position for a chapter based on priority and chapter_number
+   * Position is determined by counting how many pending chapters come before it
+   * @param priority - The priority of the chapter
+   * @param chapterNumber - The chapter number
+   * @returns Queue position (1-indexed)
+   */
+  async calculateQueuePosition(priority: number, chapterNumber: string): Promise<number> {
+    try {
+      // Count how many pending chapters come before this one
+      // Higher priority comes first, then lower chapter_number
+      const result = await db.query(
+        `SELECT COUNT(*) as position 
+         FROM chapter_posting_queue 
+         WHERE status = $1 
+           AND (priority > $2 OR (priority = $2 AND chapter_number < $3))`,
+        [QueueStatus.PENDING, priority, chapterNumber]
+      );
+
+      // Position is count + 1 (1-indexed)
+      return Number(result.rows[0]?.position || 0) + 1;
+    } catch (error) {
+      logger.error(`Error calculating queue position`, { error, priority, chapterNumber });
       throw error;
     }
   }

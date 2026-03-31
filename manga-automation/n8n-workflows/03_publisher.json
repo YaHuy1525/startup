@@ -71,6 +71,47 @@
     },
     {
       "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/captions/generate",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ { \"videoId\": $json.id } }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "generate-caption-hashtags",
+      "name": "Backend: Generate Caption & Hashtags",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ],
+      "continueOnFail": false
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT v.id, v.file_path, v.caption, v.hashtags, v.duration_secs, v.file_size_mb, m.title AS manga_title FROM videos v JOIN manga_chapters mc ON v.chapter_id = mc.id JOIN manga m ON mc.manga_id = m.id WHERE v.id = {{ $json.videoId }} LIMIT 1"
+      },
+      "id": "refetch-video-details",
+      "name": "DB: Re-fetch Video with Updated Caption",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aJSEMdFYhwBqNlYS",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
         "operation": "executeQuery",
         "query": "SELECT id, username, ig_user_id, access_token, account_status FROM instagram_accounts WHERE account_status = 'active' AND (last_post_at IS NULL OR last_post_at < NOW() - INTERVAL '4 hours') ORDER BY last_post_at ASC NULLS FIRST LIMIT 1"
       },
@@ -79,7 +120,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.3,
       "position": [
-        900,
+        1340,
         420
       ],
       "credentials": {
@@ -98,11 +139,11 @@
           "parameters": [
             {
               "name": "video_url",
-              "value": "={{ $node[\"DB: Fetch Video Details\"].json.file_path }}"
+              "value": "={{ $node[\"DB: Re-fetch Video with Updated Caption\"].json.file_path }}"
             },
             {
               "name": "caption",
-              "value": "={{ ($node[\"DB: Fetch Video Details\"].json.caption || '') + ' ' + ($node[\"DB: Fetch Video Details\"].json.hashtags || []).map(h => h.startsWith('#') ? h : '#' + h).join(' ') }}"
+              "value": "={{ ($node[\"DB: Re-fetch Video with Updated Caption\"].json.caption || '') + ' ' + ($node[\"DB: Re-fetch Video with Updated Caption\"].json.hashtags || []).map(h => h.startsWith('#') ? h : '#' + h).join(' ') }}"
             },
             {
               "name": "media_type",
@@ -123,7 +164,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        1120,
+        1560,
         420
       ],
       "continueOnFail": true,
@@ -156,7 +197,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        1340,
+        1780,
         420
       ],
       "continueOnFail": true
@@ -164,14 +205,14 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO published_videos (video_id, account_id, platform, instagram_media_id, instagram_url, caption, hashtags, published_at, status) VALUES ({{ $node[\"DB: Fetch Video Details\"].json.id }}, {{ $node[\"DB: Select Instagram Account\"].json.id }}, 'instagram', '{{ $json.id || \"\" }}', 'https://www.instagram.com/p/{{ $json.id || \"\" }}/', '{{ $node[\"DB: Fetch Video Details\"].json.caption || \"\" }}', ARRAY[{{ ($node[\"DB: Fetch Video Details\"].json.hashtags || []).map(h => `'${h}'`).join(',') || \"'#manga'\" }}]::text[], NOW(), 'published') RETURNING id"
+        "query": "INSERT INTO published_videos (video_id, account_id, platform, instagram_media_id, instagram_url, caption, hashtags, published_at, status) VALUES ({{ $node[\"DB: Re-fetch Video with Updated Caption\"].json.id }}, {{ $node[\"DB: Select Instagram Account\"].json.id }}, 'instagram', '{{ $json.id || \"\" }}', 'https://www.instagram.com/p/{{ $json.id || \"\" }}/', '{{ $node[\"DB: Re-fetch Video with Updated Caption\"].json.caption || \"\" }}', ARRAY[{{ ($node[\"DB: Re-fetch Video with Updated Caption\"].json.hashtags || []).map(h => `'${h}'`).join(',') || \"'#manga'\" }}]::text[], NOW(), 'published') RETURNING id"
       },
       "id": "save-instagram-publish",
       "name": "DB: Save Instagram Publish",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.3,
       "position": [
-        1560,
+        2000,
         420
       ],
       "continueOnFail": true,
@@ -192,7 +233,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.3,
       "position": [
-        1780,
+        2220,
         420
       ],
       "continueOnFail": true,
@@ -219,7 +260,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        900,
+        1340,
         200
       ],
       "continueOnFail": true
@@ -252,6 +293,29 @@
       "main": [
         [
           {
+            "node": "Backend: Generate Caption & Hashtags",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Backend: Generate Caption & Hashtags": {
+      "main": [
+        [
+          {
+            "node": "DB: Re-fetch Video with Updated Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB: Re-fetch Video with Updated Caption": {
+      "main": [
+        [
+          {
             "node": "DB: Select Instagram Account",
             "type": "main",
             "index": 0
@@ -261,8 +325,7 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
     "DB: Select Instagram Account": {

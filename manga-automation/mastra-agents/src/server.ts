@@ -13,6 +13,10 @@ import { detectShadowBans } from './agents/shadowBanDetector';
 import { fetchTrendingManga, fetchLatestChapter, fetchChapterPages, saveMangaChapter } from './tools/mangadex';
 import { downloadPanels } from './tools/scraper';
 import { db } from './tools/database';
+import { queueManager, QueueStatus } from './tools/queueManager';
+import { captionGenerator } from './tools/captionGenerator';
+import { hashtagSelector } from './tools/hashtagSelector';
+import { chapterAnalyzer } from './tools/chapterAnalyzer';
 import cors from 'cors';
 
 const app = express();
@@ -306,6 +310,212 @@ app.post('/dashboard/manga', async (req: Request, res: Response) => {
     }
 });
 
+/** POST /pipeline/populate-queue
+ * Queue all chapters for a manga
+ * Body: { manga_id: number }
+ */
+app.post('/pipeline/populate-queue', async (req: Request, res: Response) => {
+    const { manga_id } = req.body;
+    if (!manga_id) return res.status(400).json({ error: 'manga_id required' });
+
+    logger.info('Pipeline: populate-queue triggered', { manga_id });
+    try {
+        const queueEntries = await queueManager.populateQueue(Number(manga_id));
+        res.json({
+            success: true,
+            manga_id,
+            queued_count: queueEntries.length,
+            queue_ids: queueEntries.map(e => e.id)
+        });
+    } catch (err: any) {
+        logger.error('populate-queue failed', { error: err.message });
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/** POST /webhook/queue-chapter
+ * Manual chapter selection - queue specific chapter(s)
+ * Body: { manga_id: number, chapter_number: string, priority?: number }
+ *    OR { manga_id: number, start_chapter: string, end_chapter: string, priority?: number }
+ */
+app.post('/webhook/queue-chapter', async (req: Request, res: Response) => {
+    const { manga_id, chapter_number, start_chapter, end_chapter, priority } = req.body;
+    
+    if (!manga_id) {
+        return res.status(400).json({ error: 'manga_id required' });
+    }
+
+    logger.info('Webhook: queue-chapter triggered', { manga_id, chapter_number, start_chapter, end_chapter });
+    
+    try {
+        // Handle chapter range
+        if (start_chapter && end_chapter) {
+            const queueEntries = await queueManager.addChapterRange(
+                Number(manga_id),
+                start_chapter,
+                end_chapter,
+                priority || 100
+            );
+
+            // Calculate queue position for first entry
+            const positionResult = await db.query(
+                `SELECT COUNT(*) as position 
+                 FROM chapter_posting_queue 
+                 WHERE status = 'pending' 
+                   AND (priority > $1 OR (priority = $1 AND chapter_number < $2))`,
+                [queueEntries[0]?.priority || 100, start_chapter]
+            );
+
+            return res.json({
+                success: true,
+                queued_count: queueEntries.length,
+                queue_ids: queueEntries.map(e => e.id),
+                queue_position: Number(positionResult.rows[0]?.position || 0) + 1
+            });
+        }
+
+        // Handle single chapter
+        if (!chapter_number) {
+            return res.status(400).json({ 
+                error: 'Either chapter_number or (start_chapter and end_chapter) required' 
+            });
+        }
+
+        const queueEntry = await queueManager.addChapterWithPriority(
+            Number(manga_id),
+            chapter_number,
+            priority || 100
+        );
+
+        // Calculate queue position
+        const positionResult = await db.query(
+            `SELECT COUNT(*) as position 
+             FROM chapter_posting_queue 
+             WHERE status = 'pending' 
+               AND (priority > $1 OR (priority = $1 AND chapter_number < $2))`,
+            [queueEntry.priority, chapter_number]
+        );
+
+        res.json({
+            success: true,
+            queue_id: queueEntry.id,
+            queue_position: Number(positionResult.rows[0]?.position || 0) + 1
+        });
+    } catch (err: any) {
+        logger.error('queue-chapter failed', { error: err.message });
+        
+        // Check if it's a "not found" error
+        if (err.message.includes('not found')) {
+            return res.status(404).json({ success: false, error: err.message });
+        }
+        
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/** POST /captions/generate
+ * Generate viral captions for a video
+ * Body: { videoId: number, mangaTitle?: string, chapterNumber?: string, genre?: string, formulaType?: string }
+ */
+app.post('/captions/generate', async (req: Request, res: Response) => {
+    const { videoId, mangaTitle, chapterNumber, genre, formulaType } = req.body;
+    
+    if (!videoId) {
+        return res.status(400).json({ error: 'videoId required' });
+    }
+
+    logger.info('Captions: generate triggered', { videoId });
+    
+    try {
+        // Fetch video and manga details if not provided
+        let captionRequest: any = { mangaTitle, chapterNumber, genre, formulaType };
+        
+        if (!mangaTitle || !chapterNumber || !genre) {
+            const videoResult = await db.query(
+                `SELECT m.title, mc.chapter_number, m.genre
+                 FROM videos v
+                 JOIN manga_chapters mc ON v.chapter_id = mc.id
+                 JOIN manga m ON mc.manga_id = m.id
+                 WHERE v.id = $1`,
+                [videoId]
+            );
+
+            if (videoResult.rows.length === 0) {
+                return res.status(404).json({ error: `Video ${videoId} not found` });
+            }
+
+            const video = videoResult.rows[0];
+            captionRequest = {
+                mangaTitle: mangaTitle || video.title,
+                chapterNumber: chapterNumber || video.chapter_number,
+                genre: genre || video.genre || 'manga',
+                formulaType
+            };
+        }
+
+        // Generate caption
+        const caption = await captionGenerator.generateCaption(captionRequest);
+
+        // Select hashtags
+        const hashtags = await hashtagSelector.selectHashtags({
+            mangaTitle: captionRequest.mangaTitle,
+            genre: captionRequest.genre,
+            isRecommendation: formulaType === 'recommendation'
+        });
+
+        // Update video with caption and hashtags
+        await db.query(
+            `UPDATE videos 
+             SET caption = $1, hashtags = $2
+             WHERE id = $3`,
+            [caption.text, hashtags, videoId]
+        );
+
+        res.json({
+            success: true,
+            videoId,
+            caption: caption.text,
+            hashtags,
+            formula: caption.formula,
+            emojis: caption.emojis
+        });
+    } catch (err: any) {
+        logger.error('generate-caption failed', { error: err.message });
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/** GET /hashtags/select
+ * Select strategic hashtags
+ * Query params: ?mangaTitle=...&genre=...&emotionalTone=...&isRecommendation=true/false
+ */
+app.get('/hashtags/select', async (req: Request, res: Response) => {
+    const { mangaTitle, genre, emotionalTone, isRecommendation } = req.query;
+    
+    if (!mangaTitle || !genre) {
+        return res.status(400).json({ error: 'mangaTitle and genre required' });
+    }
+
+    logger.info('Hashtags: select triggered', { mangaTitle, genre });
+    
+    try {
+        const hashtags = await hashtagSelector.selectHashtags({
+            mangaTitle: String(mangaTitle),
+            genre: String(genre),
+            emotionalTone: emotionalTone ? String(emotionalTone) : undefined,
+            isRecommendation: isRecommendation === 'true'
+        });
+
+        res.json({
+            success: true,
+            hashtags
+        });
+    } catch (err: any) {
+        logger.error('select-hashtags failed', { error: err.message });
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // ─── Video Rendering via Remotion ─────────────────────────────────────────────
 
 const VIDEOS_DIR = process.env.VIDEOS_DIR || '/data/videos';
@@ -328,61 +538,126 @@ const imagePathToDataUri = (filePath: string): string => {
 };
 
 /** POST /pipeline/render-video
- * Renders a manga recap video using Remotion instead of FFmpeg.
- * Body: { chapterId: number, templateId?: number, randomTemplate?: boolean }
+ * Renders a manga recap video using Remotion from the queue.
+ * Body: { queueId?: number, templateId?: number, randomTemplate?: boolean }
  *
  * Flow:
- *   1. Query selected_panels for the chapter
- *   2. Build Remotion props JSON from panel paths + motion tags
- *   3. Spawn render-video.ts CLI with optional template flags
- *   4. Insert result into videos table
- *   5. Return { videoId, filePath, durationSecs, fileSizeMb, template }
+ *   1. Get next chapter from queue (or use specified queueId)
+ *   2. Analyze chapter to determine if splitting is needed
+ *   3. Build Remotion props JSON from panel paths + motion tags
+ *   4. Spawn render-video.ts CLI with optional template flags
+ *   5. Insert result into videos table
+ *   6. Update queue status to 'posted'
+ *   7. Return { videoId, filePath, durationSecs, fileSizeMb, template }
  */
 app.post('/pipeline/render-video', async (req: Request, res: Response) => {
-    const { chapterId, templateId, randomTemplate } = req.body;
-    if (!chapterId) return res.status(400).json({ error: 'chapterId required' });
+    const { queueId, templateId, randomTemplate } = req.body;
 
-    logger.info('Pipeline: render-video started', { chapterId, templateId, randomTemplate });
+    logger.info('Pipeline: render-video started', { queueId, templateId, randomTemplate });
     try {
-        // 1. Fetch selected panels + manga metadata
-        const panelResult = await db.query(
-            `SELECT sp.panels, sp.music_path, m.title, mc.chapter_number
-             FROM selected_panels sp
-             JOIN manga_chapters mc ON sp.chapter_id = mc.id
+        // 1. Get queue entry (either specified or next in queue)
+        let queueEntry;
+        if (queueId) {
+            const result = await db.query(
+                `SELECT * FROM chapter_posting_queue WHERE id = $1`,
+                [queueId]
+            );
+            if (result.rows.length === 0) {
+                return res.status(404).json({ error: `Queue entry ${queueId} not found` });
+            }
+            queueEntry = result.rows[0];
+        } else {
+            queueEntry = await queueManager.getNextChapter();
+            if (!queueEntry) {
+                return res.status(404).json({ error: 'No pending chapters in queue' });
+            }
+        }
+
+        const chapterId = queueEntry.chapter_id;
+        const queueEntryId = queueEntry.id;
+
+        // Update queue status to 'processing'
+        await queueManager.updateStatus(queueEntryId, QueueStatus.PROCESSING);
+
+        // 2. Fetch chapter data and manga metadata
+        // Cast JSONB to text to ensure proper parsing
+        const chapterResult = await db.query(
+            `SELECT 
+                mc.panel_urls::text as panel_urls_text,
+                mc.local_paths::text as local_paths_text,
+                mc.chapter_number, 
+                m.title, 
+                m.id as manga_id
+             FROM manga_chapters mc
              JOIN manga m ON mc.manga_id = m.id
-             WHERE sp.chapter_id = $1
-             ORDER BY sp.selected_at DESC
-             LIMIT 1`,
+             WHERE mc.id = $1`,
             [chapterId]
         );
 
-        if (panelResult.rows.length === 0) {
-            return res.status(404).json({ error: `No selected panels for chapter ${chapterId}` });
+        if (chapterResult.rows.length === 0) {
+            await queueManager.updateStatus(queueEntryId, QueueStatus.FAILED);
+            return res.status(404).json({ error: `Chapter ${chapterId} not found` });
         }
 
-        const row = panelResult.rows[0];
-        const panels: any[] = typeof row.panels === 'string' ? JSON.parse(row.panels) : (row.panels || []);
+        const row = chapterResult.rows[0];
+        
+        // Parse JSONB text to arrays
+        const panelUrls: string[] = JSON.parse(row.panel_urls_text || '[]');
+        const localPaths: string[] = JSON.parse(row.local_paths_text || '[]');
+        
+        logger.info('Parsed panel data', { 
+            panelUrlsCount: panelUrls.length,
+            localPathsCount: localPaths.length
+        });
 
-        if (panels.length === 0) {
-            return res.status(400).json({ error: 'Empty panel selection' });
+        if (panelUrls.length === 0) {
+            await queueManager.updateStatus(queueEntryId, QueueStatus.FAILED);
+            return res.status(400).json({ error: 'No panels found for chapter' });
         }
 
-        // 2. Build Remotion props
-        const remotionPanels = panels
-            .filter((p: any) => p.localPath && fs.existsSync(p.localPath))
-            .map((p: any) => ({
-                imagePath: imagePathToDataUri(p.localPath),
-                motionType: p.motionType || 'zoom_center',
+        // 3. Analyze chapter to determine if splitting is needed
+        const splitPlan = await chapterAnalyzer.analyzeChapter(chapterId);
+        
+        // If chapter needs splitting and queue entry is for part 1, create additional queue entries
+        if (splitPlan.videoCount > 1 && queueEntry.part_number === 1 && queueEntry.total_parts === 1) {
+            logger.info(`Chapter ${chapterId} needs splitting into ${splitPlan.videoCount} parts`);
+            await queueManager.createSplitChapterEntries(
+                row.manga_id,
+                chapterId,
+                row.chapter_number,
+                splitPlan.videoCount,
+                queueEntry.priority
+            );
+        }
+
+        // Get the segment for this part
+        const segment = splitPlan.splits.find(s => s.partNumber === queueEntry.part_number) || splitPlan.splits[0];
+        
+        // 4. Build Remotion props for this segment
+        const segmentPanels = localPaths.slice(segment.startPanel, segment.endPanel + 1);
+        
+        if (segmentPanels.length === 0) {
+            await queueManager.updateStatus(queueEntryId, QueueStatus.FAILED);
+            return res.status(400).json({ error: 'No valid local panel paths found for segment' });
+        }
+
+        const remotionPanels = segmentPanels
+            .filter((path: string) => path && fs.existsSync(path))
+            .map((path: string) => ({
+                imagePath: imagePathToDataUri(path),
+                motionType: 'zoom_center', // Default motion type
                 durationInFrames: PANEL_DURATION_FRAMES,
             }));
 
         if (remotionPanels.length === 0) {
+            await queueManager.updateStatus(queueEntryId, QueueStatus.FAILED);
             return res.status(400).json({ error: 'No valid local panel paths found' });
         }
 
         const sanitisedTitle = (row.title as string).replace(/[^a-zA-Z0-9]/g, '_');
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const filename = `${sanitisedTitle}_ch${row.chapter_number}_${timestamp}.mp4`;
+        const partSuffix = queueEntry.total_parts > 1 ? `_part${queueEntry.part_number}` : '';
+        const filename = `${sanitisedTitle}_ch${row.chapter_number}${partSuffix}_${timestamp}.mp4`;
         const outputPath = path.join(VIDEOS_DIR, filename);
 
         fs.mkdirSync(VIDEOS_DIR, { recursive: true });
@@ -390,22 +665,23 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
         const props = {
             panels: remotionPanels,
             titleText: row.title,
-            chapterText: `Chapter ${row.chapter_number}`,
-            audioSrc: row.music_path || null,
+            chapterText: queueEntry.total_parts > 1 
+                ? `Chapter ${row.chapter_number} - Part ${queueEntry.part_number}/${queueEntry.total_parts}`
+                : `Chapter ${row.chapter_number}`,
+            audioSrc: null, // Music selection can be added later
             audioDuckingVolume: 0.4,
-            templateId: templateId || undefined, // Include templateId if provided
+            templateId: templateId || undefined,
         };
 
-        // 3. Write temp props file and render
-        const propsPath = path.join(REMOTION_DIR, `.render-props-${chapterId}-${Date.now()}.json`);
+        // 5. Write temp props file and render
+        const propsPath = path.join(REMOTION_DIR, `.render-props-${queueEntryId}-${Date.now()}.json`);
         fs.writeFileSync(propsPath, JSON.stringify(props, null, 2));
 
-        logger.info(`Rendering ${remotionPanels.length} panels via Remotion`, { chapterId, outputPath });
+        logger.info(`Rendering ${remotionPanels.length} panels via Remotion`, { chapterId, queueEntryId, outputPath });
 
         // Build render command with optional template flags
         let renderCmd = `npx tsx src/render-video.ts --props "${propsPath}" --output "${outputPath}"`;
         
-        // Add template flags if specified (CLI flags override props.templateId)
         if (randomTemplate) {
             renderCmd += ' --random-template';
         }
@@ -421,12 +697,12 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
         // Clean up props file
         try { fs.unlinkSync(propsPath); } catch { }
 
-        // 4. Parse render output
+        // 6. Parse render output
         const lines = renderOutput.trim().split('\n');
         const lastLine = lines[lines.length - 1];
         const renderResult = JSON.parse(lastLine);
 
-        // 5. Insert into DB
+        // 7. Insert into DB
         const videoInsert = await db.query(
             `INSERT INTO videos (chapter_id, file_path, duration_secs, file_size_mb, status, created_at)
              VALUES ($1, $2, $3, $4, 'ready', NOW())
@@ -435,18 +711,35 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
         );
 
         const videoId = videoInsert.rows[0]?.id;
-        logger.info('Video rendered successfully', { videoId, ...renderResult });
+
+        // 8. Update queue status to 'posted'
+        await queueManager.updateStatus(queueEntryId, QueueStatus.POSTED, videoId);
+
+        logger.info('Video rendered successfully', { videoId, queueEntryId, ...renderResult });
 
         res.json({
             success: true,
             videoId,
+            queueId: queueEntryId,
             filePath: renderResult.filePath,
             durationSecs: renderResult.durationSecs,
             fileSizeMb: renderResult.fileSizeMb,
             template: renderResult.template || null,
+            partNumber: queueEntry.part_number,
+            totalParts: queueEntry.total_parts
         });
     } catch (err: any) {
         logger.error('render-video failed', { error: err.message, stderr: err.stderr });
+        
+        // Update queue status to 'failed' if we have a queueId
+        if (queueId) {
+            try {
+                await queueManager.updateStatus(queueId, QueueStatus.FAILED);
+            } catch (updateErr) {
+                logger.error('Failed to update queue status to failed', { error: updateErr });
+            }
+        }
+        
         res.status(500).json({ success: false, error: err.message });
     }
 });

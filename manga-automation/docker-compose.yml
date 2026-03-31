@@ -15,6 +15,7 @@ services:
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./database/migrations:/docker-entrypoint-initdb.d/migrations:ro
     ports:
       - "5434:5432"
     healthcheck:
@@ -47,7 +48,7 @@ services:
     restart: unless-stopped
     networks: [ manga-net ]
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://manga_user:${DB_PASSWORD}@postgres:5432/manga_automation
       REDIS_URL: redis://redis:6379
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       MAL_CLIENT_ID: ${MAL_CLIENT_ID:-}
@@ -82,7 +83,7 @@ services:
     restart: unless-stopped
     networks: [ manga-net ]
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://manga_user:${DB_PASSWORD}@postgres:5432/manga_automation
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       TIKTOK_EMAIL: ${TIKTOK_EMAIL}
       TIKTOK_PASSWORD: ${TIKTOK_PASSWORD}
