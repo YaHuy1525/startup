@@ -33,6 +33,8 @@ Once trending videos are identified, the system needs to deconstruct *why* they 
 ### 2.3 The "Super Template" System
 Instead of asking Claude to write raw React Remotion code (which is prone to syntax errors, missing imports, and runtime crashes), the `StyleAnalyzerAgent` will generate a deeply nested, strongly typed JSON configuration. A single "Super Template" React component in Remotion will interpret this JSON and render the video.
 
+*Insight from the Remotion Community:* Looking at official examples like `remotion-dev/template-prompt-to-video` and `remotion-dev/template-tiktok`, the industry standard for AI video generation is precisely this: the AI generates a structured "timeline" or "script" (our Super Template JSON) with URLs to assets (images, audio) and specific timings, which the Remotion player/renderer then consumes. This separation of concerns ensures rendering stability and allows for complex, frame-accurate React animations without relying on the LLM's raw coding abilities.
+
 **Super Template JSON Schema Example:**
 ```json
 {
