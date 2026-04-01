@@ -2,9 +2,60 @@
 -- Manga Automation System - PostgreSQL Schema
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- ─── Multi-Tenancy & Auth ────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS organizations (
+    id              SERIAL PRIMARY KEY,
+    name            VARCHAR(200) NOT NULL,
+    stripe_id       VARCHAR(100),
+    plan_tier       VARCHAR(50) DEFAULT 'free',
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id              SERIAL PRIMARY KEY,
+    auth_id         VARCHAR(200) UNIQUE NOT NULL, -- Supabase auth ID
+    organization_id INTEGER REFERENCES organizations(id),
+    email           VARCHAR(200) UNIQUE NOT NULL,
+    role            VARCHAR(50) DEFAULT 'member',
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+
+-- ─── Proxies ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS proxies (
+    id              SERIAL PRIMARY KEY,
+    organization_id INTEGER REFERENCES organizations(id),
+    ip_address      VARCHAR(50) NOT NULL,
+    port            INTEGER NOT NULL,
+    username        VARCHAR(100),
+    password        VARCHAR(100),
+    status          VARCHAR(50) DEFAULT 'active',
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+
+-- ─── Workflow Tracking ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS workflow_executions (
+    id              SERIAL PRIMARY KEY,
+    organization_id INTEGER REFERENCES organizations(id),
+    n8n_execution_id VARCHAR(100),
+    workflow_name   VARCHAR(200) NOT NULL,
+    status          VARCHAR(50) DEFAULT 'running',
+    started_at      TIMESTAMP DEFAULT NOW(),
+    completed_at    TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS workflow_steps (
+    id               SERIAL PRIMARY KEY,
+    execution_id     INTEGER REFERENCES workflow_executions(id) ON DELETE CASCADE,
+    step_name        VARCHAR(200) NOT NULL,
+    status           VARCHAR(50) DEFAULT 'success',
+    logs             JSONB,
+    created_at       TIMESTAMP DEFAULT NOW()
+);
+
 -- Manga series tracking
 CREATE TABLE IF NOT EXISTS manga (
     id              SERIAL PRIMARY KEY,
+    organization_id INTEGER REFERENCES organizations(id),
     title           VARCHAR(500) NOT NULL UNIQUE,
     title_ja        VARCHAR(500),
     mal_id          INTEGER,
@@ -76,6 +127,7 @@ CREATE TABLE IF NOT EXISTS tiktok_sounds (
 -- Generated videos ready for publication
 CREATE TABLE IF NOT EXISTS videos (
     id              SERIAL PRIMARY KEY,
+    organization_id INTEGER REFERENCES organizations(id),
     chapter_id      INTEGER REFERENCES manga_chapters(id) ON DELETE CASCADE,
     file_path       TEXT NOT NULL,
     thumbnail_path  TEXT,
@@ -84,12 +136,15 @@ CREATE TABLE IF NOT EXISTS videos (
     caption         TEXT,
     hashtags        TEXT[],
     status          VARCHAR(50) DEFAULT 'ready',  -- 'ready' | 'publishing' | 'published' | 'failed'
+    scheduled_for   TIMESTAMP,                    -- Content calendar
     created_at      TIMESTAMP DEFAULT NOW()
 );
 
 -- TikTok accounts
 CREATE TABLE IF NOT EXISTS tiktok_accounts (
     id                      SERIAL PRIMARY KEY,
+    organization_id         INTEGER REFERENCES organizations(id),
+    proxy_id                INTEGER REFERENCES proxies(id),
     username                VARCHAR(100) NOT NULL UNIQUE,
     account_status          VARCHAR(50) DEFAULT 'active',  -- 'active' | 'paused' | 'banned'
     cookies_file            TEXT,

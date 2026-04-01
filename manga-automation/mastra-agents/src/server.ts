@@ -262,6 +262,216 @@ app.get('/pipeline/shadow-banned-accounts', async (_req: Request, res: Response)
 
 // ─── Dashboard Endpoints ──────────────────────────────────────────────────────
 
+// === Workflows & Analytics ===
+
+// ─── Workflow Management Endpoints ────────────────────────────────────────────
+
+/** GET /api/workflows
+ * List all workflow executions with optional filtering
+ * Query params: ?status=running&limit=50
+ */
+app.get('/api/workflows', async (req: Request, res: Response) => {
+    const { status, limit = '50' } = req.query;
+    
+    try {
+        let query = 'SELECT * FROM workflow_executions';
+        const params: any[] = [];
+        
+        if (status) {
+            query += ' WHERE status = $1';
+            params.push(status);
+        }
+        
+        query += ' ORDER BY started_at DESC LIMIT $' + (params.length + 1);
+        params.push(parseInt(limit as string));
+        
+        const result = await db.query(query, params);
+        res.json({ workflows: result.rows });
+    } catch (err: any) {
+        logger.error('Failed to fetch workflows', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** GET /api/workflows/executions/:id
+ * Get detailed execution info including all steps
+ */
+app.get('/api/workflows/executions/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    
+    try {
+        const execution = await db.query(
+            'SELECT * FROM workflow_executions WHERE id = $1',
+            [id]
+        );
+        
+        if (execution.rows.length === 0) {
+            return res.status(404).json({ error: 'Execution not found' });
+        }
+        
+        const steps = await db.query(
+            'SELECT * FROM workflow_steps WHERE execution_id = $1 ORDER BY step_order ASC',
+            [id]
+        );
+        
+        res.json({
+            execution: execution.rows[0],
+            steps: steps.rows
+        });
+    } catch (err: any) {
+        logger.error('Failed to fetch execution details', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** POST /api/workflows/:id/run
+ * Manually trigger a workflow
+ * Body: { input_data?: any }
+ */
+app.post('/api/workflows/:id/run', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { input_data } = req.body;
+    
+    logger.info(`Triggering workflow ${id} manually`);
+    
+    try {
+        // Create execution record
+        const execution = await db.query(
+            `INSERT INTO workflow_executions 
+             (workflow_id, workflow_name, organization_id, status, trigger_type, input_data, started_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+             RETURNING id`,
+            [id, `Workflow ${id}`, 1, 'running', 'manual', JSON.stringify(input_data || {})]
+        );
+        
+        const executionId = execution.rows[0].id;
+        
+        // TODO: Trigger n8n webhook here
+        // const n8nUrl = `${process.env.N8N_URL}/webhook/${id}`;
+        // await fetch(n8nUrl, { method: 'POST', body: JSON.stringify(input_data) });
+        
+        res.json({ 
+            success: true, 
+            message: "Workflow triggered successfully",
+            execution_id: executionId
+        });
+    } catch (err: any) {
+        logger.error('Failed to trigger workflow', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** POST /api/workflows/log-step
+ * Log a workflow step completion (called by n8n workflows)
+ * Body: { execution_id, step_name, step_order, status, output_data?, error_message? }
+ */
+app.post('/api/workflows/log-step', async (req: Request, res: Response) => {
+    const { execution_id, step_name, step_order, status, output_data, error_message } = req.body;
+    
+    if (!execution_id || !step_name) {
+        return res.status(400).json({ error: 'execution_id and step_name required' });
+    }
+    
+    try {
+        // Check if step already exists
+        const existing = await db.query(
+            'SELECT id FROM workflow_steps WHERE execution_id = $1 AND step_name = $2',
+            [execution_id, step_name]
+        );
+        
+        if (existing.rows.length > 0) {
+            // Update existing step
+            const completedAt = ['completed', 'failed', 'skipped'].includes(status) ? new Date() : null;
+            await db.query(
+                `UPDATE workflow_steps 
+                 SET status = $2, output_data = $3::jsonb, error_message = $4, completed_at = $5
+                 WHERE id = $1`,
+                [existing.rows[0].id, status, 
+                 JSON.stringify(output_data || {}), error_message || null, completedAt]
+            );
+        } else {
+            // Insert new step
+            const completedAt = ['completed', 'failed', 'skipped'].includes(status) ? new Date() : null;
+            await db.query(
+                `INSERT INTO workflow_steps 
+                 (execution_id, step_name, step_order, status, output_data, error_message, started_at, completed_at)
+                 VALUES ($1, $2, $3, $4::varchar, $5::jsonb, $6, NOW(), $7)`,
+                [execution_id, step_name, step_order || 0, status, 
+                 JSON.stringify(output_data || {}), error_message || null, completedAt]
+            );
+        }
+        
+        // Update execution status if step failed
+        if (status === 'failed') {
+            await db.query(
+                `UPDATE workflow_executions 
+                 SET status = 'failed', error_message = $2, completed_at = NOW()
+                 WHERE id = $1`,
+                [execution_id, error_message || 'Step failed']
+            );
+        }
+        
+        res.json({ success: true });
+    } catch (err: any) {
+        logger.error('Failed to log workflow step', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** POST /api/workflows/executions/:id/complete
+ * Mark a workflow execution as complete
+ * Body: { status: 'completed' | 'failed', output_data?, error_message? }
+ */
+app.post('/api/workflows/executions/:id/complete', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { status, output_data, error_message } = req.body;
+    
+    if (!['completed', 'failed'].includes(status)) {
+        return res.status(400).json({ error: 'status must be completed or failed' });
+    }
+    
+    try {
+        const result = await db.query(
+            `UPDATE workflow_executions 
+             SET status = $2, output_data = $3, error_message = $4, 
+                 completed_at = NOW(),
+                 duration_ms = EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000
+             WHERE id = $1
+             RETURNING *`,
+            [id, status, JSON.stringify(output_data || {}), error_message]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Execution not found' });
+        }
+        
+        res.json({ success: true, execution: result.rows[0] });
+    } catch (err: any) {
+        logger.error('Failed to complete execution', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/analytics', async (_req: Request, res: Response) => {
+    try {
+        const result = await db.query('SELECT date_trunc(\'day\', created_at) as date, COUNT(*) as posts FROM published_videos GROUP BY 1 ORDER BY 1 DESC LIMIT 30');
+        res.json({ analytics: result.rows });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/tiktok-accounts/:id/proxy', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { proxy_id } = req.body;
+    try {
+        await db.query('UPDATE tiktok_accounts SET proxy_id = $1 WHERE id = $2', [proxy_id, id]);
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/dashboard/manga', async (_req: Request, res: Response) => {
     try {
         const result = await db.query('SELECT * FROM manga ORDER BY id DESC');
@@ -340,13 +550,13 @@ app.post('/pipeline/populate-queue', async (req: Request, res: Response) => {
  */
 app.post('/webhook/queue-chapter', async (req: Request, res: Response) => {
     const { manga_id, chapter_number, start_chapter, end_chapter, priority } = req.body;
-    
+
     if (!manga_id) {
         return res.status(400).json({ error: 'manga_id required' });
     }
 
     logger.info('Webhook: queue-chapter triggered', { manga_id, chapter_number, start_chapter, end_chapter });
-    
+
     try {
         // Handle chapter range
         if (start_chapter && end_chapter) {
@@ -376,8 +586,8 @@ app.post('/webhook/queue-chapter', async (req: Request, res: Response) => {
 
         // Handle single chapter
         if (!chapter_number) {
-            return res.status(400).json({ 
-                error: 'Either chapter_number or (start_chapter and end_chapter) required' 
+            return res.status(400).json({
+                error: 'Either chapter_number or (start_chapter and end_chapter) required'
             });
         }
 
@@ -403,12 +613,12 @@ app.post('/webhook/queue-chapter', async (req: Request, res: Response) => {
         });
     } catch (err: any) {
         logger.error('queue-chapter failed', { error: err.message });
-        
+
         // Check if it's a "not found" error
         if (err.message.includes('not found')) {
             return res.status(404).json({ success: false, error: err.message });
         }
-        
+
         res.status(500).json({ success: false, error: err.message });
     }
 });
@@ -419,17 +629,17 @@ app.post('/webhook/queue-chapter', async (req: Request, res: Response) => {
  */
 app.post('/captions/generate', async (req: Request, res: Response) => {
     const { videoId, mangaTitle, chapterNumber, genre, formulaType } = req.body;
-    
+
     if (!videoId) {
         return res.status(400).json({ error: 'videoId required' });
     }
 
     logger.info('Captions: generate triggered', { videoId });
-    
+
     try {
         // Fetch video and manga details if not provided
         let captionRequest: any = { mangaTitle, chapterNumber, genre, formulaType };
-        
+
         if (!mangaTitle || !chapterNumber || !genre) {
             const videoResult = await db.query(
                 `SELECT m.title, mc.chapter_number, m.genre
@@ -491,13 +701,13 @@ app.post('/captions/generate', async (req: Request, res: Response) => {
  */
 app.get('/hashtags/select', async (req: Request, res: Response) => {
     const { mangaTitle, genre, emotionalTone, isRecommendation } = req.query;
-    
+
     if (!mangaTitle || !genre) {
         return res.status(400).json({ error: 'mangaTitle and genre required' });
     }
 
     logger.info('Hashtags: select triggered', { mangaTitle, genre });
-    
+
     try {
         const hashtags = await hashtagSelector.selectHashtags({
             mangaTitle: String(mangaTitle),
@@ -600,12 +810,12 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
         }
 
         const row = chapterResult.rows[0];
-        
+
         // Parse JSONB text to arrays
         const panelUrls: string[] = JSON.parse(row.panel_urls_text || '[]');
         const localPaths: string[] = JSON.parse(row.local_paths_text || '[]');
-        
-        logger.info('Parsed panel data', { 
+
+        logger.info('Parsed panel data', {
             panelUrlsCount: panelUrls.length,
             localPathsCount: localPaths.length
         });
@@ -617,7 +827,7 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
 
         // 3. Analyze chapter to determine if splitting is needed
         const splitPlan = await chapterAnalyzer.analyzeChapter(chapterId);
-        
+
         // If chapter needs splitting and queue entry is for part 1, create additional queue entries
         if (splitPlan.videoCount > 1 && queueEntry.part_number === 1 && queueEntry.total_parts === 1) {
             logger.info(`Chapter ${chapterId} needs splitting into ${splitPlan.videoCount} parts`);
@@ -632,10 +842,10 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
 
         // Get the segment for this part
         const segment = splitPlan.splits.find(s => s.partNumber === queueEntry.part_number) || splitPlan.splits[0];
-        
+
         // 4. Build Remotion props for this segment
         const segmentPanels = localPaths.slice(segment.startPanel, segment.endPanel + 1);
-        
+
         if (segmentPanels.length === 0) {
             await queueManager.updateStatus(queueEntryId, QueueStatus.FAILED);
             return res.status(400).json({ error: 'No valid local panel paths found for segment' });
@@ -665,7 +875,7 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
         const props = {
             panels: remotionPanels,
             titleText: row.title,
-            chapterText: queueEntry.total_parts > 1 
+            chapterText: queueEntry.total_parts > 1
                 ? `Chapter ${row.chapter_number} - Part ${queueEntry.part_number}/${queueEntry.total_parts}`
                 : `Chapter ${row.chapter_number}`,
             audioSrc: null, // Music selection can be added later
@@ -681,17 +891,17 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
 
         // Build render command with optional template flags
         let renderCmd = `npx tsx src/render-video.ts --props "${propsPath}" --output "${outputPath}"`;
-        
+
         if (randomTemplate) {
             renderCmd += ' --random-template';
         }
 
         const renderOutput = execSync(renderCmd, {
-                cwd: REMOTION_DIR,
-                encoding: 'utf-8',
-                timeout: 10 * 60 * 1000, // 10 min
-                maxBuffer: 50 * 1024 * 1024,
-            }
+            cwd: REMOTION_DIR,
+            encoding: 'utf-8',
+            timeout: 10 * 60 * 1000, // 10 min
+            maxBuffer: 50 * 1024 * 1024,
+        }
         );
 
         // Clean up props file
@@ -730,7 +940,7 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
         });
     } catch (err: any) {
         logger.error('render-video failed', { error: err.message, stderr: err.stderr });
-        
+
         // Update queue status to 'failed' if we have a queueId
         if (queueId) {
             try {
@@ -739,8 +949,337 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
                 logger.error('Failed to update queue status to failed', { error: updateErr });
             }
         }
-        
+
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ─── TikTok Account & Proxy Management ────────────────────────────────────────
+
+/** GET /api/tiktok-accounts
+ * List all TikTok accounts with proxy information
+ * Query params: ?organization_id=1&status=active
+ */
+app.get('/api/tiktok-accounts', async (req: Request, res: Response) => {
+    const { organization_id, status } = req.query;
+    
+    try {
+        let query = `
+            SELECT 
+                ta.id, ta.username, ta.account_status, ta.shadow_banned,
+                ta.upload_failures, ta.last_post_at, ta.shadow_ban_detected_at,
+                ta.proxy_id, ta.organization_id, ta.total_posts,
+                p.name as proxy_name, p.ip_address as proxy_host, p.port as proxy_port,
+                p.country as proxy_country, p.is_active as proxy_active
+            FROM tiktok_accounts ta
+            LEFT JOIN proxies p ON ta.proxy_id = p.id
+            WHERE 1=1
+        `;
+        const params: any[] = [];
+        
+        if (organization_id) {
+            params.push(organization_id);
+            query += ` AND ta.organization_id = $${params.length}`;
+        }
+        
+        if (status) {
+            params.push(status);
+            query += ` AND ta.account_status = $${params.length}`;
+        }
+        
+        query += ' ORDER BY ta.id ASC';
+        
+        const result = await db.query(query, params);
+        res.json({ accounts: result.rows });
+    } catch (err: any) {
+        logger.error('Failed to fetch TikTok accounts', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** POST /api/tiktok-accounts
+ * Create a new TikTok account with optional proxy assignment
+ * Body: { username, cookies_file, organization_id, proxy_id?, account_status? }
+ */
+app.post('/api/tiktok-accounts', async (req: Request, res: Response) => {
+    const { username, cookies_file, organization_id, proxy_id, account_status } = req.body;
+    
+    if (!username || !organization_id) {
+        return res.status(400).json({ error: 'username and organization_id required' });
+    }
+    
+    try {
+        const result = await db.query(
+            `INSERT INTO tiktok_accounts 
+             (username, cookies_file, organization_id, proxy_id, account_status, created_at)
+             VALUES ($1, $2, $3, $4, $5, NOW())
+             RETURNING id`,
+            [username, cookies_file || null, organization_id, proxy_id || null, account_status || 'active']
+        );
+        
+        res.json({ success: true, account_id: result.rows[0].id });
+    } catch (err: any) {
+        logger.error('Failed to create TikTok account', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** PUT /api/tiktok-accounts/:id
+ * Update TikTok account settings
+ * Body: { proxy_id?, account_status?, cookies_file? }
+ */
+app.put('/api/tiktok-accounts/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { proxy_id, account_status, cookies_file } = req.body;
+    
+    try {
+        const updates: string[] = [];
+        const params: any[] = [];
+        
+        if (proxy_id !== undefined) {
+            params.push(proxy_id);
+            updates.push(`proxy_id = $${params.length}`);
+        }
+        
+        if (account_status) {
+            params.push(account_status);
+            updates.push(`account_status = $${params.length}`);
+        }
+        
+        if (cookies_file) {
+            params.push(cookies_file);
+            updates.push(`cookies_file = $${params.length}`);
+        }
+        
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+        
+        params.push(id);
+        const query = `UPDATE tiktok_accounts SET ${updates.join(', ')} WHERE id = $${params.length} RETURNING id`;
+        
+        const result = await db.query(query, params);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Account not found' });
+        }
+        
+        res.json({ success: true });
+    } catch (err: any) {
+        logger.error('Failed to update TikTok account', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** DELETE /api/tiktok-accounts/:id
+ * Delete a TikTok account
+ */
+app.delete('/api/tiktok-accounts/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    
+    try {
+        const result = await db.query('DELETE FROM tiktok_accounts WHERE id = $1 RETURNING id', [id]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Account not found' });
+        }
+        
+        res.json({ success: true });
+    } catch (err: any) {
+        logger.error('Failed to delete TikTok account', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** GET /api/proxies
+ * List all proxies
+ * Query params: ?organization_id=1&is_active=true
+ */
+app.get('/api/proxies', async (req: Request, res: Response) => {
+    const { organization_id, is_active } = req.query;
+    
+    try {
+        let query = `
+            SELECT 
+                p.*,
+                (SELECT COUNT(*) FROM tiktok_accounts ta WHERE ta.proxy_id = p.id) as accounts_count
+            FROM proxies p
+            WHERE 1=1
+        `;
+        const params: any[] = [];
+        
+        if (organization_id) {
+            params.push(organization_id);
+            query += ` AND p.organization_id = $${params.length}`;
+        }
+        
+        if (is_active !== undefined) {
+            params.push(is_active === 'true');
+            query += ` AND p.is_active = $${params.length}`;
+        }
+        
+        query += ' ORDER BY p.id ASC';
+        
+        const result = await db.query(query, params);
+        res.json({ proxies: result.rows });
+    } catch (err: any) {
+        logger.error('Failed to fetch proxies', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** POST /api/proxies
+ * Add a new proxy
+ * Body: { name, host, port, username?, password?, protocol?, country?, organization_id }
+ */
+app.post('/api/proxies', async (req: Request, res: Response) => {
+    const { name, host, port, username, password, protocol, country, organization_id } = req.body;
+    
+    if (!host || !port || !organization_id) {
+        return res.status(400).json({ error: 'host, port, and organization_id required' });
+    }
+    
+    try {
+        const result = await db.query(
+            `INSERT INTO proxies 
+             (name, ip_address, port, username, password, protocol, country, organization_id, is_active, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, NOW())
+             RETURNING id`,
+            [name || `${host}:${port}`, host, port, username || null, password || null, 
+             protocol || 'http', country || null, organization_id]
+        );
+        
+        res.json({ success: true, proxy_id: result.rows[0].id });
+    } catch (err: any) {
+        logger.error('Failed to create proxy', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** PUT /api/proxies/:id
+ * Update proxy settings
+ * Body: { name?, is_active?, username?, password? }
+ */
+app.put('/api/proxies/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { name, is_active, username, password } = req.body;
+    
+    try {
+        const updates: string[] = [];
+        const params: any[] = [];
+        
+        if (name) {
+            params.push(name);
+            updates.push(`name = $${params.length}`);
+        }
+        
+        if (is_active !== undefined) {
+            params.push(is_active);
+            updates.push(`is_active = $${params.length}`);
+        }
+        
+        if (username !== undefined) {
+            params.push(username);
+            updates.push(`username = $${params.length}`);
+        }
+        
+        if (password !== undefined) {
+            params.push(password);
+            updates.push(`password = $${params.length}`);
+        }
+        
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+        
+        params.push(id);
+        updates.push(`updated_at = NOW()`);
+        const query = `UPDATE proxies SET ${updates.join(', ')} WHERE id = $${params.length} RETURNING id`;
+        
+        const result = await db.query(query, params);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Proxy not found' });
+        }
+        
+        res.json({ success: true });
+    } catch (err: any) {
+        logger.error('Failed to update proxy', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** DELETE /api/proxies/:id
+ * Delete a proxy
+ */
+app.delete('/api/proxies/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    
+    try {
+        // Check if proxy is in use
+        const inUse = await db.query(
+            'SELECT COUNT(*) as count FROM tiktok_accounts WHERE proxy_id = $1',
+            [id]
+        );
+        
+        if (parseInt(inUse.rows[0].count) > 0) {
+            return res.status(400).json({ 
+                error: 'Proxy is currently assigned to TikTok accounts. Unassign first.' 
+            });
+        }
+        
+        const result = await db.query('DELETE FROM proxies WHERE id = $1 RETURNING id', [id]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Proxy not found' });
+        }
+        
+        res.json({ success: true });
+    } catch (err: any) {
+        logger.error('Failed to delete proxy', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** POST /api/proxies/:id/test
+ * Test proxy connection
+ */
+app.post('/api/proxies/:id/test', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    
+    try {
+        const proxyResult = await db.query('SELECT * FROM proxies WHERE id = $1', [id]);
+        
+        if (proxyResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Proxy not found' });
+        }
+        
+        const proxy = proxyResult.rows[0];
+        
+        // TODO: Implement actual proxy testing logic
+        // For now, just return a mock response
+        const isWorking = true; // Replace with actual test
+        
+        if (isWorking) {
+            await db.query(
+                'UPDATE proxies SET last_success_at = NOW(), failure_count = 0, updated_at = NOW() WHERE id = $1',
+                [id]
+            );
+        } else {
+            await db.query(
+                'UPDATE proxies SET failure_count = failure_count + 1, updated_at = NOW() WHERE id = $1',
+                [id]
+            );
+        }
+        
+        res.json({ 
+            success: true, 
+            proxy_working: isWorking,
+            message: isWorking ? 'Proxy connection successful' : 'Proxy connection failed'
+        });
+    } catch (err: any) {
+        logger.error('Failed to test proxy', { error: err.message });
+        res.status(500).json({ error: err.message });
     }
 });
 

@@ -42,25 +42,26 @@ UPLOADER_DIR = os.path.abspath(
 def get_available_account() -> dict | None:
     return db.execute_one(
         """
-        SELECT id, username, cookies_file
-        FROM tiktok_accounts
-        WHERE account_status = 'active'
-          AND shadow_banned = false
-          AND cookies_file IS NOT NULL
+        SELECT t.id, t.username, t.cookies_file, p.ip_address, p.port, p.username as proxy_user, p.password as proxy_pass
+        FROM tiktok_accounts t
+        LEFT JOIN proxies p ON t.proxy_id = p.id
+        WHERE t.account_status = 'active'
+          AND t.shadow_banned = false
+          AND t.cookies_file IS NOT NULL
           AND (
-              last_post_at IS NULL
-              OR DATE(last_post_at) < CURRENT_DATE
+              t.last_post_at IS NULL
+              OR DATE(t.last_post_at) < CURRENT_DATE
               OR (
-                  DATE(last_post_at) = CURRENT_DATE
+                  DATE(t.last_post_at) = CURRENT_DATE
                   AND (
                       SELECT COUNT(*) FROM upload_results ur
-                      WHERE ur.account_id = tiktok_accounts.id
+                      WHERE ur.account_id = t.id
                         AND DATE(ur.uploaded_at) = CURRENT_DATE
                         AND ur.success = true
                   ) < %s
               )
           )
-        ORDER BY last_post_at ASC NULLS FIRST
+        ORDER BY t.last_post_at ASC NULLS FIRST
         LIMIT 1
         """,
         (MAX_UPLOADS_PER_DAY,),
@@ -70,7 +71,7 @@ def get_available_account() -> dict | None:
 def get_video(video_id: int) -> dict | None:
     return db.execute_one(
         """
-        SELECT v.id, v.file_path, v.caption, v.hashtags,
+        SELECT v.id, v.file_path, v.caption, v.hashtags, v.scheduled_for,
                m.title AS manga_title,
                sp.tiktok_sound_id, sp.tiktok_sound_title
         FROM videos v
@@ -78,6 +79,7 @@ def get_video(video_id: int) -> dict | None:
         JOIN manga m ON mc.manga_id = m.id
         LEFT JOIN selected_panels sp ON sp.chapter_id = mc.id
         WHERE v.id = %s AND v.status = 'ready'
+          AND (v.scheduled_for IS NULL OR v.scheduled_for <= NOW())
         ORDER BY sp.selected_at DESC
         LIMIT 1
         """,
@@ -93,7 +95,7 @@ def build_caption(video: dict) -> str:
     return full[:2200]
 
 
-def do_tiktok_upload(video_path: str, caption_text: str, session_name: str, music_id: str | None = None) -> dict:
+def do_tiktok_upload(video_path: str, caption_text: str, session_name: str, music_id: str | None = None, proxy: str | None = None) -> dict:
     """
     Upload using TiktokAutoUploader library (requests-based, no browser needed).
     session_name is the name used with `python cli.py login -n <session_name>`.
@@ -137,6 +139,12 @@ def do_tiktok_upload(video_path: str, caption_text: str, session_name: str, musi
 
         from tiktok_uploader.tiktok import upload_video
 
+        # Apply proxy to environment for the requests library underneath
+        if proxy:
+            logger.info(f"Using proxy: {proxy}")
+            os.environ["HTTP_PROXY"] = proxy
+            os.environ["HTTPS_PROXY"] = proxy
+
         if music_id:
             logger.info(f"Using TikTok native sound id={music_id}")
         logger.info(f"Uploading via TiktokAutoUploader: session={session_name}, video={abs_video_path}")
@@ -160,6 +168,9 @@ def do_tiktok_upload(video_path: str, caption_text: str, session_name: str, musi
         return {"success": False, "tiktok_url": None, "error": str(e)}
     finally:
         os.chdir(original_dir)
+        if proxy:
+            os.environ.pop("HTTP_PROXY", None)
+            os.environ.pop("HTTPS_PROXY", None)
 
 
 def record_result(video_id: int, account_id: int, result: dict):
@@ -254,11 +265,18 @@ def main(video_id: int) -> dict:
 
     caption = build_caption(video)
     video_path = resolve_video_path(video["file_path"])
+    
+    proxy_url = None
+    if account.get("ip_address"):
+        auth = f"{account['proxy_user']}:{account['proxy_pass']}@" if account.get("proxy_user") else ""
+        proxy_url = f"http://{auth}{account['ip_address']}:{account['port']}"
+
     result = do_tiktok_upload(
         video_path=video_path,
         caption_text=caption,
         session_name=session_name,
         music_id=music_id,
+        proxy=proxy_url
     )
 
     record_result(video_id, account["id"], result)
