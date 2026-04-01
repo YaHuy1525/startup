@@ -6,30 +6,33 @@ This document outlines the transition of the Manga Automation video generation p
 
 The new architecture will utilize **OpenClaw**—a highly popular, self-hosted autonomous AI agent framework—as the central orchestrator, replacing fragmented n8n cron jobs and standalone Mastra agents. OpenClaw will automatically trigger TikTok scraping (via Apify) for trending manga edits, analyze their pacing, style, and effects using Claude 3.5 Sonnet (Vision), and generate a detailed JSON configuration (a "Super Template") that the Remotion renderer will use to generate highly engaging videos. Furthermore, OpenClaw will allow developers to interact with, monitor, and command the pipeline directly from communication channels like Slack or Discord.
 
-## 2. System Architecture Updates: Integration of OpenClaw
+## 2. System Architecture Updates: The Agent Harness
 
-By migrating to **OpenClaw**, we upgrade our pipeline from scheduled, disjointed scripts to an intelligent, always-on, conversational autonomous system.
+To reliably execute AI-driven workflows (scraping, file system manipulation, calling CLI commands), we must upgrade our agent architecture from the existing `@mastra/core` implementation to a more robust, production-grade **Agent Harness**.
 
-### 2.1 The OpenClaw Orchestrator
-*   **What is OpenClaw?** It is a personal, self-hosted AI assistant framework (Node.js/TypeScript) built with four core layers: Gateway (for chat integrations), Reasoning (LLM + Megaprompt), Memory (context management), and Skills (action execution).
-*   **Role in the Pipeline:** OpenClaw replaces n8n. It runs as a continuous daemon, maintaining context and state. It handles the scheduling of tasks (scraping, rendering, uploading) autonomously based on its understanding of the pipeline's goals.
-*   **Human-in-the-Loop Integration:** OpenClaw connects directly to a team's Slack or Discord server. Developers can monitor the pipeline conversationally (e.g., typing `"@OpenClaw, scrape the latest TikTok trends for #onepiece"` or `"What's the status of the rendering queue?"`).
+### 2.1 Tool Orchestration via `instructkr/claw-code` (The Harness)
+*   **What is `claw-code`?** A clean-room open-source rewrite of the highly capable, leaked Claude Code agent harness. It provides an exceptional runtime environment designed explicitly for wiring tools, orchestrating tasks, and managing context for LLM agents.
+*   **Role in the Pipeline:** The `claw-code` harness (specifically leveraging its fast, memory-safe Rust implementation) replaces the fragmented Mastra agents. It will sit alongside the Remotion renderer, providing the LLMs with secure, local, and direct access to:
+    *   Execute API calls (e.g., triggering Apify).
+    *   Read/write files to the local file system (downloading panels, writing temp JSON configurations).
+    *   Spawn child processes (executing the Remotion CLI).
+*   **Alternative Consideration (OpenClaw):** While OpenClaw provides excellent chat-based daemon capabilities (Slack/Discord integration), `claw-code` provides the superior *code-execution harness* for the backend generation pipeline. The two can be used in tandem: OpenClaw for the conversational Gateway, passing execution workloads to the `claw-code` harness.
 
-### 2.2 Trend Detection via TikTok Scraping (OpenClaw Skill)
+### 2.2 Trend Detection via TikTok Scraping
 To stay relevant, the system must analyze actual TikTok trends rather than relying solely on MangaDex popularity.
 
-*   **Proposed Tool:** **Apify TikTok Scraper** integrated as an **OpenClaw Skill**.
-    *   *Why?* Scraping TikTok directly is notoriously difficult. Apify provides robust actors that bypass CAPTCHAs and return structured JSON (metadata, engagement stats, audio links).
+*   **Proposed Tool:** **Apify TikTok Scraper**
+    *   *Why?* Scraping TikTok directly is notoriously difficult due to advanced bot protection and CAPTCHAs. Apify provides maintained, robust actors (e.g., `clockwork/tiktok-scraper` or `apify/tiktok-scraper`) that can search by hashtags or sounds.
 *   **Workflow:**
-    1.  OpenClaw autonomously triggers the "TikTok Scraper Skill" (using the Apify API) on a regular cadence or via human command.
-    2.  OpenClaw filters the structured JSON for videos with high engagement velocity (views/hour) and stores the data in its Memory system and the PostgreSQL database.
+    1.  The `claw-code` harness triggers a cron job (or an n8n webhook) executing an Apify actor script to scrape recent videos under manga-related hashtags.
+    2.  The agent filters for videos with high engagement velocity (views/hour).
     3.  It downloads the top 5-10 trending videos for analysis.
 
-### 2.3 Style Analysis (`StyleAnalyzerAgent` as an OpenClaw Skill)
-Once trending videos are identified, OpenClaw deconstructs *why* they are trending.
+### 2.3 Style Analysis Agent (`StyleAnalyzerAgent`)
+Once trending videos are identified, the system needs to deconstruct *why* they are trending.
 
 *   **Workflow:**
-    1.  OpenClaw invokes the "Style Analysis Skill," which uses **Claude 3.5 Sonnet Vision** (or Gemini 1.5 Pro) to analyze frames of the downloaded trending videos.
+    1.  The `StyleAnalyzerAgent` (running inside the `claw-code` harness) uses **Claude 3.5 Sonnet Vision** (or Gemini 1.5 Pro) to analyze frames of the downloaded trending videos.
     2.  It extracts metadata such as:
         *   Average panel duration (pacing).
         *   Types of transitions used (flashes, zooms, hard cuts).
@@ -38,7 +41,7 @@ Once trending videos are identified, OpenClaw deconstructs *why* they are trendi
     3.  It correlates these visual styles with the audio mood (using the scraped audio metadata).
 
 ### 2.4 The "Super Template" System
-Instead of asking Claude (via OpenClaw) to write raw React Remotion code (which is prone to syntax errors, missing imports, and runtime crashes), OpenClaw will generate a deeply nested, strongly typed JSON configuration. A single "Super Template" React component in Remotion will interpret this JSON and render the video.
+Instead of asking Claude to write raw React Remotion code (which is prone to syntax errors, missing imports, and runtime crashes), the `StyleAnalyzerAgent` will generate a deeply nested, strongly typed JSON configuration. A single "Super Template" React component in Remotion will interpret this JSON and render the video. The `claw-code` harness is exceptionally good at ensuring the LLM's output conforms exactly to our required JSON schema before writing it to the file system.
 
 *Insight from the Remotion Community:* Looking at official examples like `remotion-dev/template-prompt-to-video` and `remotion-dev/template-tiktok`, the industry standard for AI video generation is precisely this: the AI generates a structured "timeline" or "script" (our Super Template JSON) with URLs to assets (images, audio) and specific timings, which the Remotion player/renderer then consumes. This separation of concerns ensures rendering stability and allows for complex, frame-accurate React animations without relying on the LLM's raw coding abilities.
 
