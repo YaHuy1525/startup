@@ -2,27 +2,34 @@
 
 ## 1. Executive Summary
 
-This document outlines the transition of the Manga Automation video generation pipeline from utilizing static, pre-defined Remotion templates to a **fully dynamic, AI-driven "Super Template" system**.
+This document outlines the transition of the Manga Automation video generation pipeline from utilizing static, pre-defined Remotion templates to a **fully dynamic, AI-driven "Super Template" system orchestrated by OpenClaw**.
 
-The new architecture will automatically scrape trending manga edits from TikTok, analyze their pacing, style, and effects using Claude (or Gemini), and generate a detailed JSON configuration (a "Super Template") that the Remotion renderer will use to generate highly engaging, trend-compliant videos.
+The new architecture will utilize **OpenClaw**—a highly popular, self-hosted autonomous AI agent framework—as the central orchestrator, replacing fragmented n8n cron jobs and standalone Mastra agents. OpenClaw will automatically trigger TikTok scraping (via Apify) for trending manga edits, analyze their pacing, style, and effects using Claude 3.5 Sonnet (Vision), and generate a detailed JSON configuration (a "Super Template") that the Remotion renderer will use to generate highly engaging videos. Furthermore, OpenClaw will allow developers to interact with, monitor, and command the pipeline directly from communication channels like Slack or Discord.
 
-## 2. System Architecture Updates
+## 2. System Architecture Updates: Integration of OpenClaw
 
-### 2.1 Trend Detection via TikTok Scraping
+By migrating to **OpenClaw**, we upgrade our pipeline from scheduled, disjointed scripts to an intelligent, always-on, conversational autonomous system.
+
+### 2.1 The OpenClaw Orchestrator
+*   **What is OpenClaw?** It is a personal, self-hosted AI assistant framework (Node.js/TypeScript) built with four core layers: Gateway (for chat integrations), Reasoning (LLM + Megaprompt), Memory (context management), and Skills (action execution).
+*   **Role in the Pipeline:** OpenClaw replaces n8n. It runs as a continuous daemon, maintaining context and state. It handles the scheduling of tasks (scraping, rendering, uploading) autonomously based on its understanding of the pipeline's goals.
+*   **Human-in-the-Loop Integration:** OpenClaw connects directly to a team's Slack or Discord server. Developers can monitor the pipeline conversationally (e.g., typing `"@OpenClaw, scrape the latest TikTok trends for #onepiece"` or `"What's the status of the rendering queue?"`).
+
+### 2.2 Trend Detection via TikTok Scraping (OpenClaw Skill)
 To stay relevant, the system must analyze actual TikTok trends rather than relying solely on MangaDex popularity.
 
-*   **Proposed Tool:** **Apify TikTok Scraper**
-    *   *Why?* Scraping TikTok directly is notoriously difficult due to advanced bot protection and CAPTCHAs. Apify provides maintained, robust actors (e.g., `clockwork/tiktok-scraper` or `apify/tiktok-scraper`) that can search by hashtags (e.g., `#mangaedit`, `#onepieceedit`) or sounds, and return structured JSON containing video metadata, engagement stats, audio links, and sometimes transcriptions.
+*   **Proposed Tool:** **Apify TikTok Scraper** integrated as an **OpenClaw Skill**.
+    *   *Why?* Scraping TikTok directly is notoriously difficult. Apify provides robust actors that bypass CAPTCHAs and return structured JSON (metadata, engagement stats, audio links).
 *   **Workflow:**
-    1.  The `TikTokTrendAgent` (run via cron) triggers an Apify actor to scrape recent videos under specific manga-related hashtags.
-    2.  The agent filters for videos with high engagement velocity (views/hour).
+    1.  OpenClaw autonomously triggers the "TikTok Scraper Skill" (using the Apify API) on a regular cadence or via human command.
+    2.  OpenClaw filters the structured JSON for videos with high engagement velocity (views/hour) and stores the data in its Memory system and the PostgreSQL database.
     3.  It downloads the top 5-10 trending videos for analysis.
 
-### 2.2 Style Analysis Agent (`StyleAnalyzerAgent`)
-Once trending videos are identified, the system needs to deconstruct *why* they are trending.
+### 2.3 Style Analysis (`StyleAnalyzerAgent` as an OpenClaw Skill)
+Once trending videos are identified, OpenClaw deconstructs *why* they are trending.
 
 *   **Workflow:**
-    1.  The `StyleAnalyzerAgent` uses **Claude 3.5 Sonnet Vision** (or Gemini 1.5 Pro) to analyze frames of the downloaded trending videos.
+    1.  OpenClaw invokes the "Style Analysis Skill," which uses **Claude 3.5 Sonnet Vision** (or Gemini 1.5 Pro) to analyze frames of the downloaded trending videos.
     2.  It extracts metadata such as:
         *   Average panel duration (pacing).
         *   Types of transitions used (flashes, zooms, hard cuts).
@@ -30,8 +37,8 @@ Once trending videos are identified, the system needs to deconstruct *why* they 
         *   Color grading (high contrast, desaturated, glitch effects).
     3.  It correlates these visual styles with the audio mood (using the scraped audio metadata).
 
-### 2.3 The "Super Template" System
-Instead of asking Claude to write raw React Remotion code (which is prone to syntax errors, missing imports, and runtime crashes), the `StyleAnalyzerAgent` will generate a deeply nested, strongly typed JSON configuration. A single "Super Template" React component in Remotion will interpret this JSON and render the video.
+### 2.4 The "Super Template" System
+Instead of asking Claude (via OpenClaw) to write raw React Remotion code (which is prone to syntax errors, missing imports, and runtime crashes), OpenClaw will generate a deeply nested, strongly typed JSON configuration. A single "Super Template" React component in Remotion will interpret this JSON and render the video.
 
 *Insight from the Remotion Community:* Looking at official examples like `remotion-dev/template-prompt-to-video` and `remotion-dev/template-tiktok`, the industry standard for AI video generation is precisely this: the AI generates a structured "timeline" or "script" (our Super Template JSON) with URLs to assets (images, audio) and specific timings, which the Remotion player/renderer then consumes. This separation of concerns ensures rendering stability and allows for complex, frame-accurate React animations without relying on the LLM's raw coding abilities.
 
@@ -131,7 +138,7 @@ CREATE TABLE dynamic_video_templates (
 
 ## 4. Tooling & Pricing Estimates
 
-Operating this pipeline at scale (e.g., 90 videos/day) requires budgeting for scraping, AI inference, database, and compute.
+Operating this pipeline at scale (e.g., 90 videos/day) requires budgeting for scraping, AI inference, database, compute, and OpenClaw hosting.
 
 ### 4.1 TikTok Scraping (Apify)
 *   **Tool:** Apify TikTok Scraper.
@@ -149,11 +156,12 @@ Operating this pipeline at scale (e.g., 90 videos/day) requires budgeting for sc
     *   Claude 3 Haiku (Text): ~$0.25 per 1M tokens. Very cheap for captions/JSON gen. ~$5/month.
 *   **Estimated Monthly Cost:** **$25 - $35**
 
-### 4.3 Compute & Rendering (Remotion)
-*   **Tool:** Remotion CLI on AWS EC2 or DigitalOcean Droplet.
-*   **Usage:** Rendering 90 videos/day. Remotion relies on headless Chrome; it requires moderate CPU/RAM.
-*   **Cost:** Remotion is free for individuals/small creators (check the company size license limit if commercializing heavily).
-*   **Infrastructure:** 1x 4-core, 8GB RAM VPS (e.g., DigitalOcean Premium AMD).
+### 4.3 Compute, OpenClaw Orchestration & Rendering (Remotion)
+*   **Tool:** Remotion CLI on AWS EC2 or DigitalOcean Droplet, plus the OpenClaw Node.js daemon.
+*   **Usage:** OpenClaw running persistently to orchestrate workflows, plus Remotion rendering 90 videos/day. Remotion relies on headless Chrome and requires moderate CPU/RAM.
+*   **Cost:** OpenClaw is free (MIT Licensed). Remotion is free for individuals/small creators (check the company size license limit if commercializing heavily).
+*   **Infrastructure:** 1x 4-core, 8GB RAM VPS (e.g., DigitalOcean Premium AMD) for combined OpenClaw hosting, rendering, and database connections.
+    *   *Security Note:* As an always-on agent, OpenClaw should be run inside an isolated Docker container or WASM sandbox to prevent arbitrary command execution vulnerabilities, especially when handling third-party plugins or scripts.
 *   **Estimated Monthly Cost:** **$24 - $48**
 
 ### 4.4 Database (PostgreSQL)
