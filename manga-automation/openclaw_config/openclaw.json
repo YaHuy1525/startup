@@ -1,0 +1,47 @@
+{
+  "name": "Manga Arbitrage Agent",
+  "description": "An autonomous agent that monitors TikTok manga trends, sources YouTube shorts, and posts them.",
+  "model": "claude-3-opus-20240229",
+  "interval": 1800,
+  "heartbeat": {
+    "enabled": true,
+    "schedule": "*/30 * * * *"
+  },
+  "skills": [
+    {
+      "name": "apify-trend-scraper",
+      "type": "api",
+      "config": {
+        "actor": "madoka_trendpulse/tiktok-trends-scraper"
+      }
+    },
+    {
+      "name": "apify-youtube-scraper",
+      "type": "api",
+      "config": {
+        "actor": "ecomscrape/youtube-video-search-scraper"
+      }
+    },
+    {
+      "name": "apify-youtube-downloader",
+      "type": "api",
+      "config": {
+        "actor": "crawlerbros/youtube-video-downloader"
+      }
+    },
+    {
+      "name": "database-tool",
+      "type": "postgres",
+      "config": {
+        "url": "${DATABASE_URL}"
+      }
+    },
+    {
+      "name": "upload-arbitrage",
+      "type": "webhook",
+      "config": {
+         "url": "http://python-worker:8080/arbitrage/upload"
+      }
+    }
+  ]
+}

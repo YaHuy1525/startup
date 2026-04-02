@@ -24,6 +24,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Python Playwright Chromium to the shared path
 RUN playwright install chromium --with-deps
 
+# Clone and setup TiktokAutoUploader
+RUN apt-get update && apt-get install -y git && \
+    git clone https://github.com/makiisthenes/TiktokAutoUploader.git /TiktokAutoUploader && \
+    cd /TiktokAutoUploader/tiktok_uploader/tiktok-signature && npm i
+
 # Install Node.js playwright-chromium at a Linux-compatible path so the
 # tiktok-signature script works (the mounted Windows node_modules won't work on Linux)
 WORKDIR /sig-deps
@@ -47,7 +52,7 @@ RUN mkdir -p /data/panels /data/videos /data/logs /data/music /ms-playwright
 
 # Non-root user — give ownership of shared paths
 RUN useradd -m -u 1000 manga
-RUN chown -R manga:manga /app /data /ms-playwright /sig-deps
+RUN chown -R manga:manga /app /data /ms-playwright /sig-deps /TiktokAutoUploader
 
 USER manga
 
