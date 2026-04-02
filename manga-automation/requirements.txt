@@ -16,6 +16,10 @@ lxml>=5.0.0
 pyquery>=2.0.0
 requests-auth-aws-sigv4>=0.7
 pytube>=15.0.0
+setuptools==69.5.1
+selenium>=4.18.1
+websockets>=10.0
+pyppeteer
 
 # ─── Image Processing ──────────────────────────────────────────────────────────
 Pillow>=10.3.0

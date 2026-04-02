@@ -238,6 +238,44 @@ CREATE TABLE IF NOT EXISTS shadow_ban_events (
     notes             TEXT
 );
 
+-- ─── Autonomous Content Arbitrage (OpenClaw + Apify) ─────────────────────────
+
+-- Track TikTok Trends identified by Apify
+CREATE TABLE IF NOT EXISTS tiktok_trends (
+    id              SERIAL PRIMARY KEY,
+    hashtag         VARCHAR(255) NOT NULL,
+    region          VARCHAR(50) NOT NULL,
+    trend_velocity  FLOAT,
+    avg_views       BIGINT,
+    discovered_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status          VARCHAR(50) DEFAULT 'pending' -- 'pending' | 'sourced' | 'ignored'
+);
+
+-- Track YouTube videos sourced for arbitrage
+CREATE TABLE IF NOT EXISTS youtube_assets (
+    id              SERIAL PRIMARY KEY,
+    trend_id        INTEGER REFERENCES tiktok_trends(id),
+    youtube_url     TEXT NOT NULL,
+    video_title     TEXT,
+    channel_name    TEXT,
+    metadata_summary TEXT,
+    local_path      TEXT,
+    status          VARCHAR(50) DEFAULT 'downloaded', -- 'downloaded' | 'processing' | 'uploaded'
+    downloaded_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Extend upload_results or create a new table for Pipeline B
+CREATE TABLE IF NOT EXISTS arbitrage_uploads (
+    id                SERIAL PRIMARY KEY,
+    asset_id          INTEGER REFERENCES youtube_assets(id),
+    tiktok_account_id INTEGER REFERENCES tiktok_accounts(id),
+    tiktok_url        TEXT,
+    uploaded_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    success           BOOLEAN DEFAULT FALSE,
+    error_log         TEXT
+);
+
+
 -- ─── Indexes ──────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_manga_trending      ON manga(trending_score DESC);
 CREATE INDEX IF NOT EXISTS idx_manga_active        ON manga(is_active);

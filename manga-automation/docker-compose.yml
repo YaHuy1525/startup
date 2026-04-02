@@ -146,6 +146,23 @@ services:
       manga-agents:
         condition: service_healthy
 
+  # ─── OpenClaw Gateway ─────────────────────────────────────────────────────────
+  openclaw-gateway:
+    image: openclaw/gateway:latest
+    container_name: openclaw-gateway
+    networks: [ manga-net ]
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - APIFY_API_TOKEN=${APIFY_API_TOKEN}
+      - DATABASE_URL=postgresql://manga_user:${DB_PASSWORD}@postgres:5432/manga_automation
+    volumes:
+      - ./openclaw_config:/app/config
+      - ./data/videos:/data/videos
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # ─── Dashboard (Vite + Nginx) ──────────────────────────────────────────────────
   dashboard:
     build:

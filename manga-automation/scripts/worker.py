@@ -33,6 +33,7 @@ import scripts.check_duplicates as check_duplicates
 import scripts.generate_video as generate_video
 import scripts.upload_tiktok as upload_tiktok
 import scripts.detect_shadow_ban as detect_shadow_ban
+import scripts.upload_arbitrage as upload_arbitrage
 
 
 ROUTES = {
@@ -45,6 +46,7 @@ ROUTES = {
     "/detect-shadow-ban": lambda body: detect_shadow_ban.main(
         body.get("min_posts", 5), body.get("threshold", 0.10)
     ),
+    "/arbitrage/upload":  lambda body: upload_arbitrage.upload_arbitrage(body["asset_id"]),
 }
 
 
