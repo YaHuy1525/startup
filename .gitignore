@@ -96,8 +96,8 @@ test-manga-agents
 /meme-agents
 /TiktokAutoUploader
 /TiktokAutoUploader/.env
-TiktokAutoUploader
-
+TiktokUploader
+TiktokUploader/.env
 manga-automation/data/arbitrage_videos/
 manga-automation/data/panels/
 manga-automation/data/videos/
