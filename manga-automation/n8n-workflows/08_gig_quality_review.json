@@ -1,0 +1,113 @@
+{
+  "name": "Gig Copilot — Quality Review",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gig-review",
+        "responseMode": "responseNode"
+      },
+      "id": "trigger-gig-review",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://python-worker:8080/gig/task/score",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "task_id", "value": "={{ $json.body.task_id }}" }
+          ]
+        },
+        "options": { "timeout": 90000 }
+      },
+      "id": "score-task",
+      "name": "Score Gig Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.result.passed }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-passed",
+      "name": "Quality Passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TELEGRAM_API_URL }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "chat_id", "value": "={{ $env.TELEGRAM_ALLOWED_CHAT_IDS }}" },
+            { "name": "text",    "value": "=✅ Task #{{ $('Score Gig Task').item.json.result.task_id }} passed quality check!\nScore: {{ $('Score Gig Task').item.json.result.score }}/1.00\n\nReady to submit manually on your platform." }
+          ]
+        }
+      },
+      "id": "notify-pass",
+      "name": "Notify Pass",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TELEGRAM_API_URL }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "chat_id", "value": "={{ $env.TELEGRAM_ALLOWED_CHAT_IDS }}" },
+            { "name": "text",    "value": "=⚠️ Task #{{ $('Score Gig Task').item.json.result.task_id }} needs revision.\nScore: {{ $('Score Gig Task').item.json.result.score }}/1.00\n\nRisk flags:\n{{ $('Score Gig Task').item.json.result.risk_flags.join('\\n') }}\n\nRevise the draft before submitting." }
+          ]
+        }
+      },
+      "id": "notify-fail",
+      "name": "Notify Fail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $('Score Gig Task').item.json }}"
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "Score Gig Task",  "type": "main", "index": 0 }]] },
+    "Score Gig Task":  { "main": [[{ "node": "Quality Passed?", "type": "main", "index": 0 }]] },
+    "Quality Passed?": {
+      "main": [
+        [{ "node": "Notify Pass", "type": "main", "index": 0 }],
+        [{ "node": "Notify Fail", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify Pass": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Notify Fail": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": ["gig-copilot"]
+}

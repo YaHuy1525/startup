@@ -17,8 +17,12 @@ Output:
 """
 import sys
 import json
+import time
 import argparse
 import os
+
+# Ensure the root 'manga-automation' directory is in PYTHONPATH so 'scripts.utils' resolves properly
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from dotenv import load_dotenv
 
@@ -28,6 +32,27 @@ from scripts.utils import database as db
 from scripts.utils.logger import setup_logger
 
 logger = setup_logger("upload_tiktok")
+
+
+def _agent_dbg_upload(data: dict) -> None:
+    # #region agent log
+    try:
+        _p = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "debug-0f0c72.log"))
+        payload = {
+            "sessionId": "0f0c72",
+            "timestamp": int(time.time() * 1000),
+            "location": "upload_tiktok.py:main",
+            "message": "upload_tiktok main exit shape",
+            "data": data,
+            "hypothesisId": "H3",
+        }
+        with open(_p, "a", encoding="utf-8") as _f:
+            _f.write(json.dumps(payload, default=str) + "\n")
+    except Exception:
+        pass
+
+    # #endregion
+
 
 MAX_UPLOADS_PER_DAY = int(os.environ.get("MAX_UPLOADS_PER_ACCOUNT_DAY", 3))
 
@@ -40,9 +65,27 @@ UPLOADER_DIR = os.path.abspath(
 
 
 def get_available_account() -> dict | None:
+    forced_username = os.environ.get("DIRECT_TIKTOK_ACCOUNT", "").strip()
+    if forced_username:
+        return db.execute_one(
+            """
+            SELECT t.id, t.username, t.cookies_file, t.email, t.tiktok_password,
+                   p.ip_address, p.port, p.username as proxy_user, p.password as proxy_pass
+            FROM tiktok_accounts t
+            LEFT JOIN proxies p ON t.proxy_id = p.id
+            WHERE t.username = %s
+              AND t.account_status = 'active'
+              AND t.shadow_banned = false
+              AND t.cookies_file IS NOT NULL
+            LIMIT 1
+            """,
+            (forced_username,),
+        )
+
     return db.execute_one(
         """
-        SELECT t.id, t.username, t.cookies_file, p.ip_address, p.port, p.username as proxy_user, p.password as proxy_pass
+        SELECT t.id, t.username, t.cookies_file, t.email, t.tiktok_password,
+               p.ip_address, p.port, p.username as proxy_user, p.password as proxy_pass
         FROM tiktok_accounts t
         LEFT JOIN proxies p ON t.proxy_id = p.id
         WHERE t.account_status = 'active'
@@ -71,7 +114,7 @@ def get_available_account() -> dict | None:
 def get_video(video_id: int) -> dict | None:
     return db.execute_one(
         """
-        SELECT v.id, v.file_path, v.caption, v.hashtags, v.scheduled_for,
+        SELECT v.id, v.file_path, v.caption, v.hashtags,
                m.title AS manga_title,
                sp.tiktok_sound_id, sp.tiktok_sound_title
         FROM videos v
@@ -79,7 +122,6 @@ def get_video(video_id: int) -> dict | None:
         JOIN manga m ON mc.manga_id = m.id
         LEFT JOIN selected_panels sp ON sp.chapter_id = mc.id
         WHERE v.id = %s AND v.status = 'ready'
-          AND (v.scheduled_for IS NULL OR v.scheduled_for <= NOW())
         ORDER BY sp.selected_at DESC
         LIMIT 1
         """,
@@ -172,6 +214,94 @@ def do_tiktok_upload(video_path: str, caption_text: str, session_name: str, musi
             os.environ.pop("HTTP_PROXY", None)
             os.environ.pop("HTTPS_PROXY", None)
 
+def do_tiktok_upload_v2(video_path: str, caption_text: str, session_name: str, music_id: str | None = None, proxy: str | None = None) -> dict:
+    """
+    Upload using the NEW tiktokautouploader (phantomwright based).
+    """
+    if not session_name:
+        return {
+            "success": False,
+            "tiktok_url": None,
+            "error": "No session_name set.",
+        }
+
+    NEW_UPLOADER_DIR = os.path.abspath(
+        os.environ.get(
+            "TIKTOK_UPLOADER_V2_DIR",
+            os.path.join(os.path.dirname(__file__), "..", "..", "TiktokUploader"),
+        )
+    )
+
+    if not os.path.isdir(NEW_UPLOADER_DIR):
+        return {
+            "success": False,
+            "tiktok_url": None,
+            "error": f"TiktokUploader v2 not found at: {NEW_UPLOADER_DIR}",
+        }
+
+    abs_video_path = os.path.abspath(video_path)
+    if not os.path.exists(abs_video_path):
+        return {"success": False, "tiktok_url": None, "error": f"Video file not found: {abs_video_path}"}
+
+    original_dir = os.getcwd()
+    try:
+        os.chdir(NEW_UPLOADER_DIR)
+        if NEW_UPLOADER_DIR not in sys.path:
+            sys.path.insert(0, NEW_UPLOADER_DIR)
+
+        from tiktokautouploader import upload_tiktok
+
+        proxy_dict = None
+        if proxy:
+            from urllib.parse import urlparse
+            p = urlparse(proxy)
+            proxy_dict = {
+                'server': f"{p.scheme}://{p.hostname}:{p.port}",
+            }
+            if p.username:
+                proxy_dict['username'] = p.username
+                proxy_dict['password'] = p.password
+
+        cookie_file = f"TK_cookies_{session_name}.json"
+        if not os.path.exists(cookie_file):
+            logger.warning(f"No cookies {cookie_file} found in {NEW_UPLOADER_DIR}. The uploader may fail or prompt for login.")
+
+        logger.info(f"Uploading via NEW tiktokautouploader: session={session_name}, video={abs_video_path}")
+        
+        import re
+        hashtags = re.findall(r'#\w+', caption_text)
+        clean_description = re.sub(r'#\w+', '', caption_text).strip()
+
+        # Use non-headless when a virtual display is available (avoids TikTok bot detection)
+        use_headless = os.environ.get("DISPLAY") is None
+
+        result = upload_tiktok(
+            video=abs_video_path,
+            description=clean_description,
+            accountname=session_name,
+            hashtags=hashtags if hashtags else None,
+            sound_name=music_id,
+            headless=use_headless,
+            stealth=True,
+            proxy=proxy_dict
+        )
+
+        success = (result == 'Completed')
+        logger.info(f"Upload result: {result}")
+        return {
+            "success": success,
+            "tiktok_url": None,
+            "error": None if success else f"Upload returned: {result}",
+        }
+
+    except Exception as e:
+        import traceback
+        err_msg = traceback.format_exc()
+        logger.error(f"tiktokautouploader error: {err_msg}")
+        return {"success": False, "tiktok_url": None, "error": err_msg}
+    finally:
+        os.chdir(original_dir)
+
 
 def record_result(video_id: int, account_id: int, result: dict):
     db.execute(
@@ -246,11 +376,13 @@ def main(video_id: int) -> dict:
     video = get_video(video_id)
     if not video:
         logger.error(f"Video id={video_id} not found or not ready")
+        _agent_dbg_upload({"video_id": video_id, "success": None, "reason": "no_video_or_not_ready"})
         return {}
 
     account = get_available_account()
     if not account:
         logger.error("No available TikTok account (all at daily limit or banned)")
+        _agent_dbg_upload({"video_id": video_id, "success": False, "reason": "no_available_account"})
         return {"error": "no_available_account"}
 
     session_name = account.get("cookies_file") or account["username"]
@@ -271,16 +403,34 @@ def main(video_id: int) -> dict:
         auth = f"{account['proxy_user']}:{account['proxy_pass']}@" if account.get("proxy_user") else ""
         proxy_url = f"http://{auth}{account['ip_address']}:{account['port']}"
 
-    result = do_tiktok_upload(
-        video_path=video_path,
-        caption_text=caption,
-        session_name=session_name,
-        music_id=music_id,
-        proxy=proxy_url
-    )
+    use_v2 = os.environ.get("USE_NEW_TIKTOK_UPLOADER", "false").lower() == "true"
+    
+    if use_v2:
+        result = do_tiktok_upload_v2(
+            video_path=video_path,
+            caption_text=caption,
+            session_name=session_name,
+            music_id=music_id,
+            proxy=proxy_url
+        )
+    else:
+        result = do_tiktok_upload(
+            video_path=video_path,
+            caption_text=caption,
+            session_name=session_name,
+            music_id=music_id,
+            proxy=proxy_url
+        )
 
     record_result(video_id, account["id"], result)
 
+    _agent_dbg_upload(
+        {
+            "video_id": video_id,
+            "success": result.get("success"),
+            "error_prefix": (str(result.get("error") or ""))[:160],
+        }
+    )
     return {
         "video_id": video_id,
         "account": account["username"],

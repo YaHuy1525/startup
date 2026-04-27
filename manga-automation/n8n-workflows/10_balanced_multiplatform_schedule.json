@@ -1,0 +1,178 @@
+{
+  "name": "10 - Balanced Multi-Platform Schedule",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 7,12,19 * * *" }]
+        }
+      },
+      "id": "trigger-tiktok-primary",
+      "name": "TikTok Core Slots",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/arbitrage/distribute",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"platforms\": [\"tiktok\"], \"batch\": 3 }",
+        "options": { "timeout": 600000 }
+      },
+      "id": "post-tiktok",
+      "name": "Post TikTok Batch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "minutes"
+      },
+      "id": "wait-youtube-delay",
+      "name": "Wait 30m (YouTube Shorts)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/arbitrage/distribute",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"platforms\": [\"youtube\"], \"batch\": 2 }",
+        "options": { "timeout": 600000 }
+      },
+      "id": "post-youtube-shorts",
+      "name": "Post YouTube Shorts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [940, 200]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "minutes"
+      },
+      "id": "wait-instagram-delay",
+      "name": "Wait 60m (Instagram)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1180, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/arbitrage/distribute",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"platforms\": [\"instagram\"], \"batch\": 1 }",
+        "options": { "timeout": 600000 }
+      },
+      "id": "post-instagram",
+      "name": "Post Instagram Reels",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 200]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 13 * * *" }]
+        }
+      },
+      "id": "trigger-facebook-daily",
+      "name": "Facebook Daily Slot",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 430]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/arbitrage/distribute",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"platforms\": [\"facebook\"], \"batch\": 1 }",
+        "options": { "timeout": 600000 }
+      },
+      "id": "post-facebook",
+      "name": "Post Facebook Reels",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 430]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 8,14,20 * * *" }]
+        }
+      },
+      "id": "trigger-pinterest",
+      "name": "Pinterest Slots",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 640]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/arbitrage/distribute",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"platforms\": [\"pinterest\"], \"batch\": 2 }",
+        "options": { "timeout": 600000 }
+      },
+      "id": "post-pinterest",
+      "name": "Queue Pinterest Pins",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 640]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 18 * * 0" }]
+        }
+      },
+      "id": "trigger-longform-weekly",
+      "name": "Weekly Long-form Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 860]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/monetization/weekly-plan",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": { "timeout": 120000 }
+      },
+      "id": "generate-weekly-plan",
+      "name": "Generate Weekly Plan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 860]
+    }
+  ],
+  "connections": {
+    "TikTok Core Slots": { "main": [[{ "node": "Post TikTok Batch", "type": "main", "index": 0 }]] },
+    "Post TikTok Batch": { "main": [[{ "node": "Wait 30m (YouTube Shorts)", "type": "main", "index": 0 }]] },
+    "Wait 30m (YouTube Shorts)": { "main": [[{ "node": "Post YouTube Shorts", "type": "main", "index": 0 }]] },
+    "Post YouTube Shorts": { "main": [[{ "node": "Wait 60m (Instagram)", "type": "main", "index": 0 }]] },
+    "Wait 60m (Instagram)": { "main": [[{ "node": "Post Instagram Reels", "type": "main", "index": 0 }]] },
+    "Facebook Daily Slot": { "main": [[{ "node": "Post Facebook Reels", "type": "main", "index": 0 }]] },
+    "Pinterest Slots": { "main": [[{ "node": "Queue Pinterest Pins", "type": "main", "index": 0 }]] },
+    "Weekly Long-form Trigger": { "main": [[{ "node": "Generate Weekly Plan", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "balanced" }, { "name": "monetization" }]
+}

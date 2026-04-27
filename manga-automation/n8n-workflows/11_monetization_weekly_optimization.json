@@ -1,0 +1,54 @@
+{
+  "name": "11 - Monetization Weekly Optimization",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 20 * * 0" }]
+        }
+      },
+      "id": "trigger-weekly",
+      "name": "Weekly Sunday 8PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [260, 280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/monetization/optimize-weekly",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": { "timeout": 180000 }
+      },
+      "id": "run-weekly-optimizer",
+      "name": "Run Weekly Optimizer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/monetization/offer-matrix",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "build-offer-matrix",
+      "name": "Build Offer Matrix",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 280]
+    }
+  ],
+  "connections": {
+    "Weekly Sunday 8PM": { "main": [[{ "node": "Run Weekly Optimizer", "type": "main", "index": 0 }]] },
+    "Run Weekly Optimizer": { "main": [[{ "node": "Build Offer Matrix", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "monetization" }, { "name": "optimizer" }]
+}

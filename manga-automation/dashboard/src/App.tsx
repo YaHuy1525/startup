@@ -1,11 +1,12 @@
 import { Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Library, Share2, Settings, Workflow, Users, Calendar, Activity } from 'lucide-react';
+import { LayoutDashboard, Library, Share2, Settings, Workflow, Users, Calendar, Activity, TrendingUp } from 'lucide-react';
 import MangaManager from './pages/MangaManager';
 import PublisherDashboard from './pages/PublisherDashboard';
 import Workflows from './pages/Workflows';
 import TikTokAccounts from './pages/TikTokAccounts';
 import ContentCalendar from './pages/ContentCalendar';
 import Analytics from './pages/Analytics';
+import Arbitrage from './pages/Arbitrage';
 import { useEffect, useState } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -48,6 +49,10 @@ function App() {
             <Activity size={20} />
             Analytics
           </NavLink>
+          <NavLink to="/arbitrage" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <TrendingUp size={20} />
+            Arbitrage
+          </NavLink>
           <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Settings size={20} />
             Settings
@@ -64,6 +69,7 @@ function App() {
           <Route path="/accounts" element={<TikTokAccounts />} />
           <Route path="/calendar" element={<ContentCalendar />} />
           <Route path="/analytics" element={<Analytics />} />
+          <Route path="/arbitrage" element={<Arbitrage />} />
           <Route path="/settings" element={<div>Settings Component</div>} />
         </Routes>
       </main>

@@ -1,0 +1,198 @@
+{
+  "name": "06 - Arbitrage Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6 }]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/api/workflows/start",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"workflow_name\": \"arbitrage-pipeline\" }",
+        "options": {}
+      },
+      "id": "log-start",
+      "name": "Log: Start",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/arbitrage/discover-trends",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"region\": \"US\", \"limit\": 20 }",
+        "options": { "timeout": 120000 }
+      },
+      "id": "discover-trends",
+      "name": "Discover TikTok Trends",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/api/workflows/log-step",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"execution_id\": {{ $('Log: Start').item.json.execution_id }},\n  \"step_name\": \"discover-trends\",\n  \"step_order\": 1,\n  \"status\": \"completed\",\n  \"output_data\": {{ JSON.stringify($json.result || $json) }}\n}",
+        "options": {}
+      },
+      "id": "log-discover",
+      "name": "Log: Trends Discovered",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/arbitrage/source-assets",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"limit\": 5 }",
+        "options": { "timeout": 120000 }
+      },
+      "id": "source-assets",
+      "name": "Source YouTube Assets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/api/workflows/log-step",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"execution_id\": {{ $('Log: Start').item.json.execution_id }},\n  \"step_name\": \"source-assets\",\n  \"step_order\": 2,\n  \"status\": \"completed\",\n  \"output_data\": {{ JSON.stringify($json.result || $json) }}\n}",
+        "options": {}
+      },
+      "id": "log-source",
+      "name": "Log: Assets Sourced",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/arbitrage/download",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"batch\": 10 }",
+        "options": { "timeout": 600000 }
+      },
+      "id": "download-assets",
+      "name": "Download Videos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/api/workflows/log-step",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"execution_id\": {{ $('Log: Start').item.json.execution_id }},\n  \"step_name\": \"download-assets\",\n  \"step_order\": 3,\n  \"status\": \"completed\",\n  \"output_data\": {{ JSON.stringify($json.result || $json) }}\n}",
+        "options": {}
+      },
+      "id": "log-download",
+      "name": "Log: Downloads Done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/arbitrage/distribute",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"platforms\": [\"tiktok\", \"youtube\", \"instagram\", \"facebook\", \"pinterest\"], \"batch\": 5 }",
+        "options": { "timeout": 600000 }
+      },
+      "id": "distribute",
+      "name": "Distribute to Platforms",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/api/workflows/log-step",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"execution_id\": {{ $('Log: Start').item.json.execution_id }},\n  \"step_name\": \"distribute\",\n  \"step_order\": 4,\n  \"status\": \"completed\",\n  \"output_data\": {{ JSON.stringify($json.result || $json) }}\n}",
+        "options": {}
+      },
+      "id": "log-distribute",
+      "name": "Log: Distribution Done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://manga-agents:3001/api/workflows/executions/={{ $('Log: Start').item.json.execution_id }}/complete",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"status\": \"completed\" }",
+        "options": {}
+      },
+      "id": "log-complete",
+      "name": "Log: Complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-worker:8080/monetization/kpi/evaluate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"days\": 7, \"write_alerts\": true }",
+        "options": { "timeout": 120000 }
+      },
+      "id": "evaluate-kpis",
+      "name": "Evaluate KPIs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2660, 300]
+    }
+  ],
+  "connections": {
+    "Every 6 Hours":           { "main": [[{ "node": "Log: Start",              "type": "main", "index": 0 }]] },
+    "Log: Start":              { "main": [[{ "node": "Discover TikTok Trends",  "type": "main", "index": 0 }]] },
+    "Discover TikTok Trends":  { "main": [[{ "node": "Log: Trends Discovered",  "type": "main", "index": 0 }]] },
+    "Log: Trends Discovered":  { "main": [[{ "node": "Source YouTube Assets",   "type": "main", "index": 0 }]] },
+    "Source YouTube Assets":   { "main": [[{ "node": "Log: Assets Sourced",     "type": "main", "index": 0 }]] },
+    "Log: Assets Sourced":     { "main": [[{ "node": "Download Videos",         "type": "main", "index": 0 }]] },
+    "Download Videos":         { "main": [[{ "node": "Log: Downloads Done",     "type": "main", "index": 0 }]] },
+    "Log: Downloads Done":     { "main": [[{ "node": "Distribute to Platforms", "type": "main", "index": 0 }]] },
+    "Distribute to Platforms": { "main": [[{ "node": "Log: Distribution Done",  "type": "main", "index": 0 }]] },
+    "Log: Distribution Done":  { "main": [[{ "node": "Log: Complete",           "type": "main", "index": 0 }]] },
+    "Log: Complete":           { "main": [[{ "node": "Evaluate KPIs",           "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "arbitrage" }]
+}

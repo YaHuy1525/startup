@@ -1,0 +1,93 @@
+{
+  "name": "Gig Copilot — Task Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gig-intake",
+        "responseMode": "responseNode"
+      },
+      "id": "trigger-gig-intake",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://python-worker:8080/gig/task/create",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "user_id",   "value": "={{ $json.body.user_id ?? 'default' }}" },
+            { "name": "platform",  "value": "={{ $json.body.platform }}" },
+            { "name": "task_type", "value": "={{ $json.body.task_type }}" },
+            { "name": "brief",     "value": "={{ $json.body.brief }}" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "create-task",
+      "name": "Create Gig Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://python-worker:8080/gig/task/draft",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "task_id", "value": "={{ $json.result.task_id }}" }
+          ]
+        },
+        "options": { "timeout": 120000 }
+      },
+      "id": "draft-task",
+      "name": "Generate Draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TELEGRAM_API_URL }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "chat_id", "value": "={{ $env.TELEGRAM_ALLOWED_CHAT_IDS }}" },
+            { "name": "text",    "value": "=✅ Gig task #{{ $('Create Gig Task').item.json.result.task_id }} created on {{ $('Create Gig Task').item.json.result.platform }}.\n\nDraft ready. Run /gig_score {{ $('Create Gig Task').item.json.result.task_id }} to check quality." }
+          ]
+        }
+      },
+      "id": "notify-telegram",
+      "name": "Notify via Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, task_id: $('Create Gig Task').item.json.result.task_id } }}"
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger":    { "main": [[{ "node": "Create Gig Task",    "type": "main", "index": 0 }]] },
+    "Create Gig Task":   { "main": [[{ "node": "Generate Draft",     "type": "main", "index": 0 }]] },
+    "Generate Draft":    { "main": [[{ "node": "Notify via Telegram","type": "main", "index": 0 }]] },
+    "Notify via Telegram":{ "main": [[{ "node": "Respond",          "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": ["gig-copilot"]
+}

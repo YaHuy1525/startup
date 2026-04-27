@@ -24,6 +24,23 @@ export default function PublisherDashboard() {
         setLoading(false);
     };
 
+    const handleUploadYoutube = async (id: number) => {
+        if (!confirm('Are you sure you want to deploy this video to YouTube Shorts?')) return;
+        
+        try {
+            const res = await fetch(`${API_BASE}/dashboard/videos/${id}/upload-youtube`, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                alert('Successfully uploaded to YouTube Shorts!');
+                fetchData();
+            } else {
+                alert('Upload failed: ' + data.error);
+            }
+        } catch (e: any) {
+            alert('Request failed: ' + e.message);
+        }
+    };
+
     useEffect(() => {
         fetchData();
     }, []);
@@ -109,6 +126,7 @@ export default function PublisherDashboard() {
                             <th>Duration</th>
                             <th>Status</th>
                             <th>Created</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -119,6 +137,16 @@ export default function PublisherDashboard() {
                                 <td>{Math.floor(vid.duration_secs)}s</td>
                                 <td><span className={`badge ${vid.status}`}>{vid.status}</span></td>
                                 <td>{new Date(vid.created_at).toLocaleDateString()}</td>
+                                <td>
+                                    <button 
+                                        className="btn-primary" 
+                                        style={{ padding: '6px 12px', fontSize: '12px' }}
+                                        onClick={() => handleUploadYoutube(vid.id)}
+                                        disabled={vid.status !== 'ready' && vid.status !== 'published'}
+                                    >
+                                        Deploy to YT
+                                    </button>
+                                </td>
                             </tr>
                         ))}
                     </tbody>

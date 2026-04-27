@@ -24,20 +24,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Python Playwright Chromium to the shared path
 RUN playwright install chromium --with-deps
 
-# Clone and setup TiktokAutoUploader
-RUN apt-get update && apt-get install -y git && \
-    git clone https://github.com/makiisthenes/TiktokAutoUploader.git /TiktokAutoUploader && \
-    cd /TiktokAutoUploader/tiktok_uploader/tiktok-signature && npm i
-
-# Install Node.js playwright-chromium at a Linux-compatible path so the
-# tiktok-signature script works (the mounted Windows node_modules won't work on Linux)
+# Install Node.js playwright-chromium matching the Python playwright version
+# so the tiktok-signature browser.js works inside the container
 WORKDIR /sig-deps
-RUN npm install playwright-chromium@1.10.0
-RUN node -e "require('playwright-chromium').chromium.executablePath()" 2>/dev/null || \
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 node -e "process.exit(0)" || true
-
-# Make NODE_PATH point to the Linux-compatible modules so Node.js prefers
-# /sig-deps over the mounted (Windows) node_modules when resolving playwright-chromium
+RUN npm install playwright-chromium@1.58.0
 ENV NODE_PATH=/sig-deps/node_modules
 
 WORKDIR /app
@@ -49,6 +39,11 @@ RUN chmod +x scripts-bash/generate_manga_video.sh
 
 # Create data directories and shared browser path
 RUN mkdir -p /data/panels /data/videos /data/logs /data/music /ms-playwright
+
+# Symlink so the TiktokAutoUploader's old playwright-chromium version can find the browser
+RUN mkdir -p /ms-playwright/chromium_headless_shell-1148/chrome-linux && \
+    ln -sf /ms-playwright/chromium-1208/chrome-linux64/chrome \
+           /ms-playwright/chromium_headless_shell-1148/chrome-linux/headless_shell
 
 # Non-root user — give ownership of shared paths
 RUN useradd -m -u 1000 manga

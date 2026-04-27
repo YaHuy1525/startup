@@ -95,3 +95,15 @@ pnpm-debug.log*
 test-manga-agents
 /meme-agents
 /TiktokAutoUploader
+/TiktokAutoUploader/.env
+TiktokAutoUploader
+
+manga-automation/data/arbitrage_videos/
+manga-automation/data/panels/
+manga-automation/data/videos/
+manga-automation/data/logs/
+manga-automation/data/n8n/
+manga-automation/data/redis/
+manga-automation/data/postgres/
+manga-automation/data/obsidian-vault/
+manga-automation/data/music/

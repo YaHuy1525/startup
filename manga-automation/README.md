@@ -67,12 +67,15 @@ open http://localhost:5679              # admin / <N8N_PASSWORD>
 ### 5. Import n8n Workflows
 In the n8n UI (http://localhost:5679):
 1. Settings → Import from File
-2. Import all 5 files from `n8n-workflows/` in order:
+2. Import workflow files from `n8n-workflows/` in order:
    - `01_trend_detection.json` - Fetches trending manga and populates queue
    - `02_video_generation.json` - Renders videos from queue with Remotion
    - `03_publisher.json` - Generates captions/hashtags and uploads to TikTok
    - `04_shadow_ban_monitor.json` - Monitors accounts for shadow bans
    - `05_manual_chapter_selection.json` - Webhook for manual chapter queuing
+   - `06_arbitrage_pipeline.json` - Full arbitrage trend->source->download->multi-platform distribution
+   - `10_balanced_multiplatform_schedule.json` - Balanced TikTok/YouTube/Instagram/Facebook/Pinterest cadence
+   - `11_monetization_weekly_optimization.json` - Weekly KPI evaluation and allocation optimization
 3. In each workflow, update the **PostgreSQL credential** to point to `postgres:5432` with your `DB_PASSWORD`
 4. Activate all workflows
 
@@ -104,6 +107,129 @@ VALUES ('your_tiktok_username', 'active');
 | `DUPLICATE_MAX_USES` | No | `5` | Max times a panel can be reused |
 | `VIDEO_MIN_DURATION_SECONDS` | No | `60` | Minimum video length |
 | `SHADOW_BAN_FYP_THRESHOLD` | No | `0.10` | FYP% below which = shadow ban |
+| `TELEGRAM_BOT_TOKEN` | No | — | Telegram bot token for remote control/reporting |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | No | empty (allow all) | Comma-separated chat IDs allowed to use bot commands |
+| `TELEGRAM_POLL_INTERVAL` | No | `2` | Long-poll retry delay (seconds) for Telegram bot |
+| `LAST30DAYS_COMMAND_TEMPLATE` | No | `last30days "{query}"` | Wrapper command used to invoke the installed last30days skill |
+| `LAST30DAYS_DEFAULT_QUERIES` | No | empty | Default scheduled research queries separated by new lines or `||` |
+| `LAST30DAYS_REGION` | No | `US` | Region label used when persisting research runs |
+| `LAST30DAYS_SCHEDULE_SECONDS` | No | `21600` | Scheduled ingest interval for last30days runner |
+| `DEERFLOW_URL` | No | `http://localhost:2026` | DeerFlow base URL used by worker/Telegram hybrid commands |
+| `DEERFLOW_GATEWAY_URL` | No | `http://localhost:2026/api` | DeerFlow gateway API URL |
+| `DEERFLOW_LANGGRAPH_URL` | No | `http://localhost:2026/api/langgraph` | DeerFlow LangGraph API URL |
+| `DEERFLOW_MODEL_NAME` | No | empty | Optional DeerFlow model override for hybrid planning commands |
+| `SUMMON_BACKEND` | No | `crewai` | Set to `deerflow` to feature-flag `/summon` over to DeerFlow |
+| `ARBITRAGE_UPLOAD_RETRIES` | No | `2` | Max retries per platform upload in arbitrage distribution |
+| `ARBITRAGE_UPLOAD_RETRY_DELAY_SECONDS` | No | `8` | Delay between upload retries |
+| `INSTAGRAM_USER_ID` | No | — | Instagram Graph user id for Reels publishing |
+| `INSTAGRAM_ACCESS_TOKEN` | No | — | Instagram Graph API access token |
+| `FACEBOOK_PAGE_ID` | No | — | Facebook page id for Reels publishing |
+| `FACEBOOK_PAGE_ACCESS_TOKEN` | No | — | Facebook page access token |
+| `PINTEREST_DEFAULT_BOARD` | No | `manga-reading-guides` | Fallback queue board for Pinterest pins |
+| `PINTEREST_DEFAULT_LANDING_URL` | No | empty | Landing URL attached to Pinterest queue entries |
+
+## Telegram Bot Control
+
+The stack includes a `telegram-bot` service that lets you trigger pipelines and receive status reports from Telegram.
+
+### Setup
+
+1. Set these values in `.env`:
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_ALLOWED_CHAT_IDS` (recommended for security)
+2. Start or restart services:
+```bash
+docker compose up -d --build python-worker telegram-bot
+```
+3. Open your bot chat and send `/help`.
+
+### Key Commands
+
+- `/status` - Worker + agent health and memory summary
+- `/fetch_trending 20` - Fetch trending manga
+- `/generate_video <chapter_id>` - Render a video
+- `/upload_tiktok <video_id>` - Upload to TikTok
+- `/arb_discover US 20` - Discover arbitrage trends
+- `/arb_download 10` - Download sourced assets
+- `/arb_distribute tiktok,youtube 5` - Distribute downloaded assets
+- `/research_topic <query>` - Run a last30days ingest query and persist hashtags/channels
+- `/research_status` - Show recent last30days ingest runs
+- `/plan_campaign <goal>` - Ask DeerFlow for a campaign plan
+- `/recover_last_run` - Ask DeerFlow to propose recovery steps from recent DB failures
+- `/deerflow <prompt>` - Send an ad hoc prompt to DeerFlow
+- `/summon <prompt>` - Trigger CrewAI pipeline prompt
+- `/worker <path> [json]` - Direct worker endpoint control
+- `/mastra <METHOD> <path> [json]` - Direct Mastra API control
+
+## last30days Research Ingest
+
+The stack can ingest trend research from the `last30days` skill and store structured hints in Postgres for later sourcing and caption generation.
+
+### How it works
+
+1. `research-scheduler` runs queries from `LAST30DAYS_DEFAULT_QUERIES`
+2. `scripts/research_ingest_last30days.py` stores:
+   - summary
+   - confidence
+   - candidate channels
+   - candidate hashtags
+   - evidence URLs
+3. `source_youtube_assets.py` prefers these stored channel/hashtag candidates before generic searches
+4. upload metadata builders reuse the ingested hashtags during caption generation
+
+### Setup
+
+1. Install `last30days` on the machine/container path referenced by `LAST30DAYS_COMMAND_TEMPLATE`
+2. Set:
+```bash
+LAST30DAYS_COMMAND_TEMPLATE='last30days "{query}"'
+LAST30DAYS_DEFAULT_QUERIES='best anime comedy shorts||viral manga edits'
+```
+3. Start the scheduler:
+```bash
+docker compose up -d --build research-scheduler
+```
+
+### Manual ingest
+
+```bash
+curl -X POST http://localhost:8080/research/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"query":"best anime comedy shorts"}'
+```
+
+## DeerFlow Hybrid Mode
+
+DeerFlow is integrated as an optional planning/research layer and does not replace the existing runtime worker in the first phase.
+
+### What DeerFlow handles
+
+- research-heavy prompts
+- campaign planning
+- recovery suggestions after failed runs
+- optional feature-flagged `/summon` execution
+
+### Start DeerFlow
+
+The compose file includes an optional `deerflow` profile:
+
+```bash
+docker compose --profile deerflow up -d deerflow
+```
+
+### Feature flag for `/summon`
+
+Keep the current CrewAI path:
+
+```bash
+SUMMON_BACKEND=crewai
+```
+
+Switch `/summon` to DeerFlow:
+
+```bash
+SUMMON_BACKEND=deerflow
+```
 
 ## Python Scripts (Direct Usage)
 
@@ -152,6 +278,18 @@ GET  /pipeline/pending-chapters   Chapters not yet panel-selected
 GET  /pipeline/ready-videos       Videos ready to publish
 POST /pipeline/mark-published     Body: { videoId, platform, ... }
 GET  /pipeline/shadow-banned-accounts
+```
+
+### Monetization Control Endpoints (python-worker)
+```
+POST /monetization/kpi/evaluate   Body: { days?: 7, write_alerts?: true }
+POST /monetization/weekly-plan    Body: {}
+POST /monetization/snapshot       Body: { platform, metric_key, metric_value, source? }
+POST /monetization/should-post-ad Body: { platform, days?: 7 }
+POST /monetization/membership-cta Body: { slot_index?: 0 }
+POST /monetization/high-cpm-field Body: { week_seed?: number }
+POST /monetization/offer-matrix   Body: {}
+POST /monetization/optimize-weekly Body: {}
 ```
 
 ### Queue Management Endpoints
@@ -307,6 +445,19 @@ JOIN manga m ON mc.manga_id = m.id
 ORDER BY va.views DESC
 LIMIT 10;
 ```
+
+## Monetization KPI Setup
+
+Run migration `database/migrations/009_monetization_control_plane.sql` to provision:
+- `monetization_kpi_thresholds` (go/warn thresholds)
+- `monetization_channel_config` (platform cadence + ad-ratio controls)
+- `monetization_performance_snapshots` (daily KPI values)
+- `monetization_alerts` (automatic threshold violations)
+
+Weekly optimizer flow:
+1. `POST /monetization/optimize-weekly`
+2. snapshots are updated for `upload_success_rate`, `error_rate`, `revenue_per_video_usd`
+3. KPI evaluator emits alerts and recommends scale/cautious_scale/stabilize decisions
 
 ## Project Structure
 

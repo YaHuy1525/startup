@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+**/.pytest_cache
+**/__pycache__
+**/*.pyc
+data/postgres
+data/redis
+data/panels
+data/videos
+data/n8n
+data/arbitrage_videos
+.git
+dashboard/node_modules
+dashboard/dist
+mastra-agents/node_modules
+remotion-renderer/node_modules

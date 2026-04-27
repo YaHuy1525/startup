@@ -18,6 +18,9 @@ import { captionGenerator } from './tools/captionGenerator';
 import { hashtagSelector } from './tools/hashtagSelector';
 import { chapterAnalyzer } from './tools/chapterAnalyzer';
 import cors from 'cors';
+import { generateGigDraft } from './agents/gigDraftGenerator';
+import { scoreGigDraft } from './agents/gigRubricScorer';
+import { generateMangaScript } from './agents/scriptwriter';
 
 const app = express();
 app.use(cors());
@@ -126,6 +129,24 @@ app.post('/agents/detect-shadow-ban', async (_req: Request, res: Response) => {
         res.json({ success: true, result: result.text });
     } catch (err: any) {
         logger.error('detect-shadow-ban failed', { error: err.message });
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/** POST /agents/manga-scriptwriter
+ * Generates viral brainrot lore scripts
+ * Body: { chapterText, chapterTitle, mangaSeries, trendingKeywords, styleWeights }
+ */
+app.post('/agents/manga-scriptwriter', async (req: Request, res: Response) => {
+    const { chapterText, chapterTitle, mangaSeries, trendingKeywords, styleWeights } = req.body;
+    if (!chapterText || !mangaSeries) return res.status(400).json({ error: 'chapterText and mangaSeries required' });
+
+    logger.info('Agent: manga-scriptwriter triggered', { mangaSeries });
+    try {
+        const result = await generateMangaScript(chapterText, chapterTitle, mangaSeries, trendingKeywords, styleWeights);
+        res.json({ success: true, script: result });
+    } catch (err: any) {
+        logger.error('manga-scriptwriter failed', { error: err.message });
         res.status(500).json({ success: false, error: err.message });
     }
 });
@@ -324,6 +345,26 @@ app.get('/api/workflows/executions/:id', async (req: Request, res: Response) => 
     }
 });
 
+/** POST /api/workflows/start
+ * Create a new workflow execution record and return its ID.
+ * Used by n8n workflows to get an execution_id for subsequent log-step calls.
+ * Body: { workflow_name: string }
+ */
+app.post('/api/workflows/start', async (req: Request, res: Response) => {
+    const { workflow_name = 'unnamed' } = req.body;
+    try {
+        const result = await db.query(
+            `INSERT INTO workflow_executions (workflow_name, organization_id, status, started_at)
+             VALUES ($1, 1, 'running', NOW()) RETURNING id`,
+            [workflow_name]
+        );
+        res.json({ success: true, execution_id: result.rows[0].id });
+    } catch (err: any) {
+        logger.error('Failed to start workflow execution', { error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
 /** POST /api/workflows/:id/run
  * Manually trigger a workflow
  * Body: { input_data?: any }
@@ -500,6 +541,22 @@ app.get('/dashboard/videos', async (_req: Request, res: Response) => {
             ORDER BY v.created_at DESC
         `);
         res.json({ videos: result.rows });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/dashboard/videos/:id/upload-youtube', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    try {
+        const workerUrl = process.env.PYTHON_WORKER_URL || 'http://localhost:8080';
+        const response = await fetch(`${workerUrl}/upload-youtube`, {
+            method: 'POST',
+            body: JSON.stringify({ video_id: parseInt(id) }),
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const result = await response.json();
+        res.json(result);
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
@@ -1280,6 +1337,143 @@ app.post('/api/proxies/:id/test', async (req: Request, res: Response) => {
     } catch (err: any) {
         logger.error('Failed to test proxy', { error: err.message });
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── Arbitrage Pipeline Endpoints ────────────────────────────────────────────
+
+const WORKER_URL = process.env.PYTHON_WORKER_URL || 'http://python-worker:8080';
+
+const callWorker = async (path: string, body: object = {}) => {
+    const r = await fetch(`${WORKER_URL}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    return r.json();
+};
+
+app.post('/arbitrage/discover-trends', async (req: Request, res: Response) => {
+    try {
+        const result = await callWorker('/arbitrage/discover-trends', req.body);
+        res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/arbitrage/source-assets', async (req: Request, res: Response) => {
+    try {
+        const result = await callWorker('/arbitrage/source-assets', req.body);
+        res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/arbitrage/download', async (req: Request, res: Response) => {
+    try {
+        const result = await callWorker('/arbitrage/download', req.body);
+        res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/arbitrage/distribute', async (req: Request, res: Response) => {
+    try {
+        const result = await callWorker('/arbitrage/distribute', req.body);
+        res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/arbitrage/yt-to-tiktok', async (req: Request, res: Response) => {
+    try {
+        const result = await callWorker('/yt-to-tiktok', req.body);
+        res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/arbitrage/status', async (_req: Request, res: Response) => {
+    try {
+        const [trends, assets, uploads] = await Promise.all([
+            db.query(`SELECT status, COUNT(*) as count FROM trend_intel GROUP BY status`),
+            db.query(`SELECT status, COUNT(*) as count FROM arbitrage_assets GROUP BY status`),
+            db.query(`SELECT platform, status, COUNT(*) as count FROM arbitrage_uploads GROUP BY platform, status`),
+        ]);
+        res.json({ trends: trends.rows, assets: assets.rows, uploads: uploads.rows });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/arbitrage/assets', async (req: Request, res: Response) => {
+    const { status } = req.query;
+    try {
+        const result = await db.query(
+            `SELECT a.id, t.hashtag, a.youtube_title, a.youtube_url,
+                    a.duration_secs, a.file_size_mb, a.status
+             FROM arbitrage_assets a
+             JOIN trend_intel t ON a.trend_id = t.id
+             ${status ? `WHERE a.status = $1` : ''}
+             ORDER BY a.id DESC LIMIT 100`,
+            status ? [status] : []
+        );
+        res.json({ assets: result.rows });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Gig Copilot Endpoints ───────────────────────────────────────────────────
+
+/** POST /gig/task/draft
+ * Called by Python worker's gig_prepare.py → generate_draft()
+ * Body: { taskPrompt, taskType, platform, rubric?, templateHint? }
+ * Response: { draft: string }
+ */
+app.post('/gig/task/draft', async (req: Request, res: Response) => {
+    const { taskPrompt, taskType, platform, rubric, templateHint } = req.body;
+
+    if (!taskPrompt || !taskType || !platform) {
+        return res.status(400).json({ error: 'taskPrompt, taskType, and platform are required' });
+    }
+
+    logger.info('GigCopilot: draft requested', { platform, taskType });
+
+    try {
+        const draft = await generateGigDraft(
+            taskPrompt,
+            taskType,
+            platform,
+            rubric ?? {},
+            templateHint,
+        );
+        res.json({ draft, platform, taskType });
+    } catch (err: any) {
+        logger.error('gig/task/draft failed', { error: err.message });
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/** POST /gig/task/score
+ * Called by Python worker's gig_score.py → score_task()
+ * Body: { taskPrompt, draftOutput, platform, taskType, rubric? }
+ * Response: { score: float, risk_flags: string[], dimension_scores: object }
+ */
+app.post('/gig/task/score', async (req: Request, res: Response) => {
+    const { taskPrompt, draftOutput, platform, taskType, rubric } = req.body;
+
+    if (!taskPrompt || !draftOutput || !platform || !taskType) {
+        return res.status(400).json({
+            error: 'taskPrompt, draftOutput, platform, and taskType are required',
+        });
+    }
+
+    logger.info('GigCopilot: score requested', { platform, taskType });
+
+    try {
+        const result = await scoreGigDraft(
+            taskPrompt,
+            draftOutput,
+            platform,
+            taskType,
+            rubric ?? {},
+        );
+        res.json(result);
+    } catch (err: any) {
+        logger.error('gig/task/score failed', { error: err.message });
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 

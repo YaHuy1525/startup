@@ -95,6 +95,37 @@ services:
       VIDEO_MIN_DURATION_SECONDS: ${VIDEO_MIN_DURATION_SECONDS:-60}
       SHADOW_BAN_FYP_THRESHOLD: ${SHADOW_BAN_FYP_THRESHOLD:-0.10}
       TIKTOK_UPLOADER_DIR: /TiktokAutoUploader
+      TIKTOK_UPLOADER_V2_DIR: /TiktokUploader
+      APIFY_API: ${APIFY_API}
+      APIFY_DATA_SCRAPING_API: ${APIFY_DATA_SCRAPING_API}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY}
+      YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID}
+      YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET}
+      YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN}
+      ARBITRAGE_VIDEOS_DIR: /data/arbitrage_videos
+      ARBITRAGE_PLATFORMS: ${ARBITRAGE_PLATFORMS:-tiktok}
+      CHROMADB_URL: http://chromadb:8000
+      # OPEN_ROUTER passed but only used if it has credits; falls back to ANTHROPIC_API_KEY
+      OPENROUTER_API_KEY: ${OPEN_ROUTER:-}
+      OPEN_ROUTER: ${OPEN_ROUTER:-}
+      CREWAI_LLM_PROVIDER: ${CREWAI_LLM_PROVIDER:-anthropic}
+      MAX_ASSETS_PER_TREND: ${MAX_ASSETS_PER_TREND:-3}
+      VELOCITY_THRESHOLD: ${VELOCITY_THRESHOLD:-0.0}
+      PYTHON_WORKER_URL: http://python-worker:8080
+      MASTRA_API_URL: http://manga-agents:3001
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      TELEGRAM_WORKER_URL: http://python-worker:8080
+      TELEGRAM_MASTRA_URL: http://manga-agents:3001
+      LAST30DAYS_COMMAND_TEMPLATE: ${LAST30DAYS_COMMAND_TEMPLATE:-last30days "{query}"}
+      LAST30DAYS_DEFAULT_QUERIES: ${LAST30DAYS_DEFAULT_QUERIES:-}
+      LAST30DAYS_REGION: ${LAST30DAYS_REGION:-US}
+      DEERFLOW_URL: ${DEERFLOW_URL:-http://deerflow:2026}
+      DEERFLOW_GATEWAY_URL: ${DEERFLOW_GATEWAY_URL:-http://deerflow:2026/api}
+      DEERFLOW_LANGGRAPH_URL: ${DEERFLOW_LANGGRAPH_URL:-http://deerflow:2026/api/langgraph}
+      DEERFLOW_MODEL_NAME: ${DEERFLOW_MODEL_NAME:-}
+      SUMMON_BACKEND: ${SUMMON_BACKEND:-crewai}
+      OBSIDIAN_VAULT_PATH: /data/obsidian-vault
     ports:
       - "8080:8080"
     volumes:
@@ -102,10 +133,79 @@ services:
       - ./data/videos:/data/videos
       - ./data/music:/data/music:ro
       - ./data/logs:/data/logs
+      - ./data/arbitrage_videos:/data/arbitrage_videos
+      # Debug NDJSON (session 0f0c72) — same path as worker resolves via /app/debug-0f0c72.log
+      - ../debug-0f0c72.log:/app/debug-0f0c72.log
+      - ./scripts:/app/scripts:ro
       - ../TiktokAutoUploader:/TiktokAutoUploader:ro
+      - ../TiktokUploader:/TiktokUploader
+      - ./data/obsidian-vault:/data/obsidian-vault
     depends_on:
       postgres:
         condition: service_healthy
+      chromadb:
+        condition: service_healthy
+
+  # ─── Telegram Control Bot ─────────────────────────────────────────────────────
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    restart: unless-stopped
+    networks: [ manga-net ]
+    command: [ "python3", "-u", "scripts/telegram_bot.py" ]
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      TELEGRAM_POLL_INTERVAL: ${TELEGRAM_POLL_INTERVAL:-2}
+      TELEGRAM_WORKER_URL: http://python-worker:8080
+      TELEGRAM_MASTRA_URL: http://manga-agents:3001
+      DEERFLOW_URL: ${DEERFLOW_URL:-http://deerflow:2026}
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./data/logs:/data/logs
+      - ./data/obsidian-vault:/data/obsidian-vault
+    depends_on:
+      python-worker:
+        condition: service_started
+      manga-agents:
+        condition: service_healthy
+
+  # ─── Scheduled last30days Research Ingest ─────────────────────────────────────
+  research-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    restart: unless-stopped
+    networks: [ manga-net ]
+    command: [ "python3", "-u", "scripts/research_scheduler.py" ]
+    environment:
+      DATABASE_URL: postgresql://manga_user:${DB_PASSWORD}@postgres:5432/manga_automation
+      LOGS_DIR: /data/logs
+      LAST30DAYS_COMMAND_TEMPLATE: ${LAST30DAYS_COMMAND_TEMPLATE:-last30days "{query}"}
+      LAST30DAYS_DEFAULT_QUERIES: ${LAST30DAYS_DEFAULT_QUERIES:-}
+      LAST30DAYS_REGION: ${LAST30DAYS_REGION:-US}
+      LAST30DAYS_SCHEDULE_SECONDS: ${LAST30DAYS_SCHEDULE_SECONDS:-21600}
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./data/logs:/data/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ─── DeerFlow Hybrid Planning Layer (optional profile) ───────────────────────
+  deerflow:
+    image: ghcr.io/bytedance/deer-flow:main
+    restart: unless-stopped
+    profiles: [ "deerflow" ]
+    networks: [ manga-net ]
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+    ports:
+      - "2026:2026"
 
   # ─── n8n Orchestrator ─────────────────────────────────────────────────────────
   n8n:
@@ -162,6 +262,24 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # ─── ChromaDB Vector Memory ───────────────────────────────────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    restart: unless-stopped
+    networks: [ manga-net ]
+    volumes:
+      - ./data/chromadb:/chroma/chroma
+    ports:
+      - "8001:8000"
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    healthcheck:
+      test: [ "CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8000 && echo -e 'GET /api/v2/heartbeat HTTP/1.0\\r\\n\\r\\n' >&3 && cat <&3 | grep -q heartbeat" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
   # ─── Dashboard (Vite + Nginx) ──────────────────────────────────────────────────
   dashboard:

@@ -1,0 +1,106 @@
+{
+  "name": "Gig Copilot — Daily Analytics",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 21 * * *"
+            }
+          ]
+        }
+      },
+      "id": "trigger-daily",
+      "name": "Daily 9PM Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://python-worker:8080/gig/session/today",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "user_id", "value": "default" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "get-today",
+      "name": "Get Today Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.result.tasks_today ?? 0 }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "any-tasks",
+      "name": "Any Tasks Today?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TELEGRAM_API_URL }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "chat_id", "value": "={{ $env.TELEGRAM_ALLOWED_CHAT_IDS }}" },
+            { "name": "text",    "value": "={{ $('Get Today Summary').item.json.result.formatted ?? '📊 No gig tasks today.' }}" }
+          ]
+        }
+      },
+      "id": "send-summary",
+      "name": "Send Daily Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TELEGRAM_API_URL }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "chat_id", "value": "={{ $env.TELEGRAM_ALLOWED_CHAT_IDS }}" },
+            { "name": "text",    "value": "📊 No gig tasks logged today.\n\nUse /gig_new to start a task." }
+          ]
+        }
+      },
+      "id": "send-empty",
+      "name": "Send Empty Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 400]
+    }
+  ],
+  "connections": {
+    "Daily 9PM Schedule": { "main": [[{ "node": "Get Today Summary", "type": "main", "index": 0 }]] },
+    "Get Today Summary":  { "main": [[{ "node": "Any Tasks Today?",  "type": "main", "index": 0 }]] },
+    "Any Tasks Today?": {
+      "main": [
+        [{ "node": "Send Daily Summary", "type": "main", "index": 0 }],
+        [{ "node": "Send Empty Notice",  "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": ["gig-copilot", "analytics"]
+}

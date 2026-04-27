@@ -1,0 +1,177 @@
+{
+  "name": "Phase 1: Brainrot Content Pipeline (20-Node Architecture)",
+  "nodes": [
+    {
+      "id": "1",
+      "name": "Node 1: Cron Trigger (Every 6h)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "id": "2",
+      "name": "Node 2: Fetch MangaDex API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [200, 0],
+      "parameters": { "method": "GET", "url": "https://api.mangadex.org/manga/YOUR_ID/feed" }
+    },
+    {
+      "id": "3",
+      "name": "Node 3: Check Postgres Chapters",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.1,
+      "position": [400, 0],
+      "parameters": { "operation": "executeQuery", "query": "SELECT id FROM chapters WHERE chapter_num = $1;" }
+    },
+    {
+      "id": "4",
+      "name": "Node 4: IF New Chapter",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [600, 0]
+    },
+    {
+      "id": "5",
+      "name": "Node 5: Firecrawl Extract Dialogue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [800, 0],
+      "parameters": { "method": "POST", "url": "https://api.firecrawl.dev/v1/extract" }
+    },
+    {
+      "id": "6",
+      "name": "Node 6: Insert DB (Processed=FALSE)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.1,
+      "position": [1000, 0]
+    },
+    {
+      "id": "7",
+      "name": "Node 7: Mastra Script Generation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1200, 0],
+      "parameters": { "method": "POST", "url": "http://mastra-server:4000/agents/manga-scriptwriter" }
+    },
+    {
+      "id": "8",
+      "name": "Node 8: ElevenLabs TTS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1400, 0],
+      "parameters": { "method": "POST", "url": "https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}/with-timestamps" }
+    },
+    {
+      "id": "9",
+      "name": "Node 9: Kling AI Animate Panels",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1600, 0],
+      "parameters": { "method": "POST", "url": "https://api.klingai.com/v1/videos/image2video" }
+    },
+    {
+      "id": "10",
+      "name": "Node 10: Short-Video-Maker Assembly",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1800, 0],
+      "parameters": { "method": "POST", "url": "http://short-video-maker:3123/api/short-video" }
+    },
+    {
+      "id": "11",
+      "name": "Node 11: Creatomate CTA Overlay",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 0],
+      "parameters": { "method": "POST", "url": "https://api.creatomate.com/v1/renders" }
+    },
+    {
+      "id": "12",
+      "name": "Node 12: Wait 5m",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2200, 0]
+    },
+    {
+      "id": "13",
+      "name": "Node 13: TikTok Uploader",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [2400, 0]
+    },
+    {
+      "id": "14",
+      "name": "Node 14: Wait 30m (YT)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2600, 0]
+    },
+    {
+      "id": "15",
+      "name": "Node 15: YouTube/Instagram Auto Upload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2800, 0]
+    },
+    {
+      "id": "16",
+      "name": "Node 16: DB Status = Processed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.1,
+      "position": [3000, 0]
+    },
+    {
+      "id": "17",
+      "name": "Node 17: Wait 24h",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [3200, 0]
+    },
+    {
+      "id": "18",
+      "name": "Node 18: Fetch Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3400, 0]
+    },
+    {
+      "id": "19",
+      "name": "Node 19: DB Save Analytics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.1,
+      "position": [3600, 0]
+    },
+    {
+      "id": "20",
+      "name": "Node 20: Mastra Logger Update",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3800, 0]
+    }
+  ],
+  "connections": {
+    "Node 1: Cron Trigger (Every 6h)": { "main": [ [ { "node": "Node 2: Fetch MangaDex API", "type": "main", "index": 0 } ] ] },
+    "Node 2: Fetch MangaDex API": { "main": [ [ { "node": "Node 3: Check Postgres Chapters", "type": "main", "index": 0 } ] ] },
+    "Node 3: Check Postgres Chapters": { "main": [ [ { "node": "Node 4: IF New Chapter", "type": "main", "index": 0 } ] ] },
+    "Node 4: IF New Chapter": { "main": [ [ { "node": "Node 5: Firecrawl Extract Dialogue", "type": "main", "index": 0 } ] ] },
+    "Node 5: Firecrawl Extract Dialogue": { "main": [ [ { "node": "Node 6: Insert DB (Processed=FALSE)", "type": "main", "index": 0 } ] ] },
+    "Node 6: Insert DB (Processed=FALSE)": { "main": [ [ { "node": "Node 7: Mastra Script Generation", "type": "main", "index": 0 } ] ] },
+    "Node 7: Mastra Script Generation": { "main": [ [ { "node": "Node 8: ElevenLabs TTS", "type": "main", "index": 0 } ] ] },
+    "Node 8: ElevenLabs TTS": { "main": [ [ { "node": "Node 9: Kling AI Animate Panels", "type": "main", "index": 0 } ] ] },
+    "Node 9: Kling AI Animate Panels": { "main": [ [ { "node": "Node 10: Short-Video-Maker Assembly", "type": "main", "index": 0 } ] ] },
+    "Node 10: Short-Video-Maker Assembly": { "main": [ [ { "node": "Node 11: Creatomate CTA Overlay", "type": "main", "index": 0 } ] ] },
+    "Node 11: Creatomate CTA Overlay": { "main": [ [ { "node": "Node 12: Wait 5m", "type": "main", "index": 0 } ] ] },
+    "Node 12: Wait 5m": { "main": [ [ { "node": "Node 13: TikTok Uploader", "type": "main", "index": 0 } ] ] },
+    "Node 13: TikTok Uploader": { "main": [ [ { "node": "Node 14: Wait 30m (YT)", "type": "main", "index": 0 } ] ] },
+    "Node 14: Wait 30m (YT)": { "main": [ [ { "node": "Node 15: YouTube/Instagram Auto Upload", "type": "main", "index": 0 } ] ] },
+    "Node 15: YouTube/Instagram Auto Upload": { "main": [ [ { "node": "Node 16: DB Status = Processed", "type": "main", "index": 0 } ] ] },
+    "Node 16: DB Status = Processed": { "main": [ [ { "node": "Node 17: Wait 24h", "type": "main", "index": 0 } ] ] },
+    "Node 17: Wait 24h": { "main": [ [ { "node": "Node 18: Fetch Analytics", "type": "main", "index": 0 } ] ] },
+    "Node 18: Fetch Analytics": { "main": [ [ { "node": "Node 19: DB Save Analytics", "type": "main", "index": 0 } ] ] },
+    "Node 19: DB Save Analytics": { "main": [ [ { "node": "Node 20: Mastra Logger Update", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": {
+    "errorWorkflow": "YOUR_ERROR_WORKFLOW_ID"
+  }
+}
