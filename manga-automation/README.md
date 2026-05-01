@@ -292,6 +292,35 @@ POST /monetization/offer-matrix   Body: {}
 POST /monetization/optimize-weekly Body: {}
 ```
 
+### Trend-Driven Autopilot Endpoints (python-worker)
+```
+POST /autopilot/plan-content
+Body: { limit?: 10, repurpose_ratio?: 0.5 }
+-> returns ranked topics with mode:
+   - generate_original
+   - repurpose_youtube
+
+POST /autopilot/execute-content-plan
+Body: { limit?: 10, repurpose_ratio?: 0.5, batch?: 3 }
+-> executes first N items:
+   - repurpose items queue YouTube assets
+   - original items return script/render queue payload
+```
+
+### Voiceover Endpoints (ElevenLabs + Kokoro local)
+```
+POST /voiceover/synthesize
+Body: {
+  text: string,
+  provider?: "elevenlabs" | "kokoro",
+  voice_id?: string,   // ElevenLabs voice id
+  model_id?: string,   // provider model id
+  output_path?: string
+}
+```
+If provider is `elevenlabs` and it fails, the service can optionally fallback
+to local Kokoro (`VOICE_ENABLE_FALLBACK=true`).
+
 ### Queue Management Endpoints
 ```
 POST /webhook/queue-chapter       Body: { manga_id, chapter_number, priority? }
@@ -458,6 +487,28 @@ Weekly optimizer flow:
 1. `POST /monetization/optimize-weekly`
 2. snapshots are updated for `upload_success_rate`, `error_rate`, `revenue_per_video_usd`
 3. KPI evaluator emits alerts and recommends scale/cautious_scale/stabilize decisions
+
+## Voiceover Setup
+
+1. Set ElevenLabs keys in `.env`:
+```bash
+VOICE_PROVIDER=elevenlabs
+ELEVENLABS_API_KEY=...
+ELEVENLABS_VOICE_ID=...
+ELEVENLABS_MODEL_ID=eleven_multilingual_v2
+```
+2. Optional local Kokoro fallback:
+```bash
+VOICE_ENABLE_FALLBACK=true
+KOKORO_RUNNER_PATH=/app/scripts/kokoro_tts_runner.mjs
+KOKORO_MODEL_ID=onnx-community/Kokoro-82M-v1.0-ONNX
+KOKORO_VOICE=af_sky
+KOKORO_DTYPE=q8
+```
+3. Install `kokoro-js` where worker runs local node scripts:
+```bash
+npm i kokoro-js
+```
 
 ## Project Structure
 

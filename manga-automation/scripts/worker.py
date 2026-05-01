@@ -78,6 +78,8 @@ import scripts.obsidian_sync as obsidian_sync
 import scripts.monetization_ops as monetization_ops
 import scripts.monetization_activation as monetization_activation
 import scripts.weekly_optimizer as weekly_optimizer
+import scripts.trend_content_planner as trend_content_planner
+import scripts.voiceover_service as voiceover_service
 from scripts.utils import database as db
 
 
@@ -430,6 +432,24 @@ ROUTES = {
     "/monetization/high-cpm-field": lambda body: monetization_activation.main("high-cpm-field", body),
     "/monetization/offer-matrix":   lambda body: monetization_activation.main("offer-matrix", body),
     "/monetization/optimize-weekly": lambda body: weekly_optimizer.run_weekly_optimization(),
+    # ── Trend-Driven Autopilot (cross-domain) ─────────────────────────────────
+    "/autopilot/plan-content": lambda body: trend_content_planner.plan(
+        limit=int(body.get("limit", 10)),
+        repurpose_ratio=float(body.get("repurpose_ratio", os.environ.get("TREND_REPURPOSE_RATIO", "0.5"))),
+    ),
+    "/autopilot/execute-content-plan": lambda body: trend_content_planner.execute(
+        limit=int(body.get("limit", 10)),
+        repurpose_ratio=float(body.get("repurpose_ratio", os.environ.get("TREND_REPURPOSE_RATIO", "0.5"))),
+        batch=int(body.get("batch", 3)),
+    ),
+    # ── Voiceover Synthesis (ElevenLabs / Kokoro local) ───────────────────────
+    "/voiceover/synthesize": lambda body: voiceover_service.synthesize(
+        text=body.get("text", ""),
+        provider=body.get("provider"),
+        voice_id=body.get("voice_id"),
+        model_id=body.get("model_id"),
+        output_path=body.get("output_path"),
+    ),
     "/api/memory/query-trends":   lambda body: __import__(
         'scripts.memory_manager', fromlist=['query_similar_trends']
     ).query_similar_trends(body.get("query", "manga"), body.get("n", 5)),

@@ -94,10 +94,14 @@ pnpm-debug.log*
 /tiktok-agents
 test-manga-agents
 /meme-agents
-/TiktokAutoUploader
-/TiktokAutoUploader/.env
+TiktokAutoUploader
+TiktokAutoUploader/.env
 TiktokUploader
 TiktokUploader/.env
+tiktokautouploader/
+tiktikuplaoder/
+shorts_maker/
+
 manga-automation/data/arbitrage_videos/
 manga-automation/data/panels/
 manga-automation/data/videos/
