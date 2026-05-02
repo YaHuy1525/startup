@@ -52,6 +52,13 @@ google-auth>=2.29.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.130.0
 
+# ─── Omnichannel Pods ──────────────────────────────────────────────────────────
+feedgen>=1.0.0                  # Pod 4: Podcast RSS feed generation
+weasyprint>=62.0                # Pod 5: PDF digital product rendering
+instagrapi>=2.1.0               # Instagram Reels upload (unofficial mobile API)
+nodriver>=0.38                  # Stealth browser automation (TikTok scraping)
+Jinja2>=3.1.4                   # HTML templating for PDF/newsletter generation
+
 # ─── Testing ───────────────────────────────────────────────────────────────────
 pytest>=8.2.0
 pytest-asyncio>=0.23.7

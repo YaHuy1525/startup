@@ -47,7 +47,7 @@ RUN mkdir -p /ms-playwright/chromium_headless_shell-1148/chrome-linux && \
 
 # Non-root user — give ownership of shared paths
 RUN useradd -m -u 1000 manga
-RUN chown -R manga:manga /app /data /ms-playwright /sig-deps /TiktokAutoUploader
+RUN chown -R manga:manga /app /data /ms-playwright /sig-deps
 
 USER manga
 

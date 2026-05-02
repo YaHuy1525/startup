@@ -80,6 +80,14 @@ import scripts.monetization_activation as monetization_activation
 import scripts.weekly_optimizer as weekly_optimizer
 import scripts.trend_content_planner as trend_content_planner
 import scripts.voiceover_service as voiceover_service
+import scripts.genesis_discover as genesis_discover
+import scripts.genesis_brief_generator as genesis_briefs
+import scripts.omnichannel_distributor as omnichannel
+import scripts.editorial_publisher as editorial
+import scripts.digital_product_generator as digital_products
+import scripts.upload_instagram as upload_instagram
+import scripts.upload_pinterest as upload_pinterest
+import scripts.podcast_rss_generator as podcast_rss
 from scripts.utils import database as db
 
 
@@ -456,6 +464,31 @@ ROUTES = {
     "/api/memory/declining":      lambda body: __import__(
         'scripts.memory_manager', fromlist=['get_declining_trends']
     ).get_declining_trends(),
+    # ── Genesis Discovery (Pod 0 — Omnichannel) ──────────────────────────────
+    # POST /genesis/discover   { categories: "fiction,tech", limit: 15 }
+    # POST /genesis/briefs     { categories: "fiction,tech", top: 3, action: "generate" }
+    # POST /genesis/briefs     { action: "list", limit: 10 }
+    "/genesis/discover":  lambda body: genesis_discover.main(body),
+    "/genesis/briefs":    lambda body: genesis_briefs.main(body),
+    # ── Omnichannel Distribution (Pods 1-5) ──────────────────────────────────
+    # POST /omnichannel/distribute  { brief_id: 1, channels: "editorial,products" }
+    # POST /omnichannel/auto        { action: "auto", limit: 3 }
+    "/omnichannel/distribute": lambda body: omnichannel.main(body),
+    "/omnichannel/auto":       lambda body: omnichannel.main({**body, "action": "auto"}),
+    # ── Editorial Publisher (Pod 3) ──────────────────────────────────────────
+    # POST /editorial/publish  { brief_id: 1, platforms: "medium,substack,linkedin" }
+    "/editorial/publish": lambda body: editorial.main(body),
+    # ── Digital Products (Pod 5) ─────────────────────────────────────────────
+    # POST /products/generate  { brief_ids: [1,2], categories: "tech" }
+    "/products/generate": lambda body: digital_products.main(body),
+    # ── Platform Uploaders ───────────────────────────────────────────────────
+    # POST /upload/instagram  { video_path, caption, account, hashtags }
+    # POST /upload/pinterest  { video_path, title, description, board_id }
+    "/upload/instagram": lambda body: upload_instagram.main(body),
+    "/upload/pinterest": lambda body: upload_pinterest.main(body),
+    # ── Podcast RSS (Pod 4) ──────────────────────────────────────────────────
+    # POST /podcast/generate-feed  { limit: 50 }
+    "/podcast/generate-feed": lambda body: podcast_rss.main(body),
 }
 
 
