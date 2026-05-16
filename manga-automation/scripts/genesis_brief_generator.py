@@ -30,6 +30,43 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 BRIEF_MODEL = os.environ.get("GENESIS_BRIEF_MODEL", "claude-sonnet-4-20250514")
 TOP_SIGNALS_PER_CAT = int(os.environ.get("GENESIS_TOP_SIGNALS", "20"))
 
+# ─── Finance / Side-Hustle category prompt ───────────────────────────────────
+# Used when category_slug == 'finance' — replaces the default entertainment prompt.
+FINANCE_BRIEF_PROMPT_TEMPLATE = """\
+You are a personal-finance micro-content creator. Your brand is "real dude, real data" —
+you document exactly how much you earn from passive-income apps and invest every dollar.
+
+Here are the top {signal_count} trending topics in the side-hustle / passive-income space
+from the last 48 hours (Reddit, TikTok):
+
+{signals_text}
+
+You have active referral links for these platforms:
+{referral_links}
+
+From these signals, produce {top_n} content briefs. For each, return a JSON object.
+
+Return ONLY a valid JSON array (no markdown fences) with {top_n} objects:
+[
+  {{
+    "trend_name": "Short catchy name — include a dollar amount if possible",
+    "viral_hook": "One sentence that stops the scroll. Lead with a specific earnings number.",
+    "target_audience": "People curious about side hustles, passive income, or micro-investing",
+    "suggested_monetization": "referral_commission — list the specific apps from the referral_links above",
+    "base_narrative": "300-500 word post / video script. Include: (1) exact earnings figures, (2) name the apps with referral CTA, (3) end with 'Comment LIST and I'll DM you every app I use' or 'Link in bio for my full referral list'",
+    "virality_score": 82,
+    "source_signal_ids": [0, 2]
+  }}
+]
+
+Rules:
+- virality_score is 0-100. Earnings-proof posts score 75-95.
+- Always include at least one specific dollar amount in the hook.
+- suggested_monetization must list the specific app slugs from referral_links.
+- base_narrative must feel authentic — write in first-person, conversational tone.
+- source_signal_ids should reference the 0-based indices of the input signals.
+"""
+
 
 def _get_top_signals(category_id: int, limit: int = 20) -> list[dict]:
     """Fetch highest-velocity signals from the last 48 hours for a category."""
@@ -45,6 +82,32 @@ def _get_top_signals(category_id: int, limit: int = 20) -> list[dict]:
         """,
         (category_id, limit),
     )
+
+
+def _get_referral_links_text() -> str:
+    """Fetch active referral platforms and format them for the finance prompt."""
+    try:
+        rows = db.execute(
+            """
+            SELECT slug, display_name, referral_url, signup_bonus_usd
+            FROM referral_platforms
+            WHERE is_active = true
+              AND referral_url NOT LIKE '%YOUR_REF_ID%'
+            ORDER BY tier, monthly_payout_usd DESC
+            LIMIT 8
+            """
+        )
+        if not rows:
+            return "(No referral links configured yet — add them to the referral_platforms table)"
+        lines = [
+            f"  • {r['display_name']} (slug={r['slug']}): {r['referral_url']}"
+            + (f" — ${float(r['signup_bonus_usd']):.0f} signup bonus" if r.get('signup_bonus_usd') else "")
+            for r in rows
+        ]
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning(f"Could not fetch referral links: {e}")
+        return "(referral_platforms table not available)"
 
 
 def _evaluate_with_llm(category: dict, signals: list[dict], top_n: int = 3) -> list[dict]:
@@ -72,7 +135,18 @@ def _evaluate_with_llm(category: dict, signals: list[dict], top_n: int = 3) -> l
         )
     signals_text = "\n".join(signal_lines)
 
-    prompt = f"""You are an expert trend analyst and content strategist. You are analyzing trending data for the category: **{category['display_name']}**.
+    # ── Finance category: use the side-hustle / referral-aware prompt ──────────
+    is_finance = category.get("slug") == "finance"
+    if is_finance:
+        referral_links = _get_referral_links_text()
+        prompt = FINANCE_BRIEF_PROMPT_TEMPLATE.format(
+            signal_count=len(signal_lines),
+            signals_text=signals_text,
+            referral_links=referral_links,
+            top_n=top_n,
+        )
+    else:
+        prompt = f"""You are an expert trend analyst and content strategist. You are analyzing trending data for the category: **{category['display_name']}**.
 
 Here are the top {len(signal_lines)} trending signals scraped from Reddit, HackerNews, and TikTok in the last 48 hours:
 

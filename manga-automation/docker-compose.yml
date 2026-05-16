@@ -40,7 +40,7 @@ services:
       timeout: 3s
       retries: 3
 
-  # ─── Mastra AI Agents (Node 20) ───────────────────────────────────────────────
+  # ─── Mastra AI Agents (Node 20) — Trend Detection + Content Creation ───────────
   manga-agents:
     build:
       context: .
@@ -51,6 +51,7 @@ services:
       DATABASE_URL: postgresql://manga_user:${DB_PASSWORD}@postgres:5432/manga_automation
       REDIS_URL: redis://redis:6379
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       MAL_CLIENT_ID: ${MAL_CLIENT_ID:-}
       PANELS_DIR: /data/panels
       VIDEOS_DIR: /data/videos
@@ -75,16 +76,21 @@ services:
       retries: 3
       start_period: 20s
 
-  # ─── Python Worker (FFmpeg + Playwright) ─────────────────────────────────────
+  # ─── Python Worker (FFmpeg + Playwright + CrewAI + Engage + Monetize) ──────────
   python-worker:
     build:
       context: .
       dockerfile: Dockerfile.python
     restart: unless-stopped
     networks: [ manga-net ]
+    # Pass through posting / platform keys from .env (POSTIZ_*, META_*, PINTEREST_*, etc.).
+    # Values under `environment:` below still override env_file when the same key is set.
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://manga_user:${DB_PASSWORD}@postgres:5432/manga_automation
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       TIKTOK_EMAIL: ${TIKTOK_EMAIL}
       TIKTOK_PASSWORD: ${TIKTOK_PASSWORD}
       PANELS_DIR: /data/panels
@@ -96,6 +102,7 @@ services:
       SHADOW_BAN_FYP_THRESHOLD: ${SHADOW_BAN_FYP_THRESHOLD:-0.10}
       TIKTOK_UPLOADER_DIR: /TiktokAutoUploader
       TIKTOK_UPLOADER_V2_DIR: /TiktokUploader
+      USE_NEW_TIKTOK_UPLOADER: "false"
       APIFY_API: ${APIFY_API}
       APIFY_DATA_SCRAPING_API: ${APIFY_DATA_SCRAPING_API}
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY}
@@ -111,6 +118,10 @@ services:
       CREWAI_LLM_PROVIDER: ${CREWAI_LLM_PROVIDER:-anthropic}
       MAX_ASSETS_PER_TREND: ${MAX_ASSETS_PER_TREND:-3}
       VELOCITY_THRESHOLD: ${VELOCITY_THRESHOLD:-0.0}
+      REVID_API_KEY: ${REVID_API_KEY:-}
+      REVID_VOICE_ID: ${REVID_VOICE_ID:-}
+      REVID_BACKGROUND: ${REVID_BACKGROUND:-subway_surfers}
+      FINANCE_VIDEO_PROVIDER: ${FINANCE_VIDEO_PROVIDER:-revid}
       PYTHON_WORKER_URL: http://python-worker:8080
       MASTRA_API_URL: http://manga-agents:3001
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
@@ -126,8 +137,11 @@ services:
       DEERFLOW_MODEL_NAME: ${DEERFLOW_MODEL_NAME:-}
       SUMMON_BACKEND: ${SUMMON_BACKEND:-crewai}
       OBSIDIAN_VAULT_PATH: /data/obsidian-vault
+      REFERRAL_HUB_URL: ${REFERRAL_HUB_URL:-https://your-domain.com/links}
+      EARNINGS_SCREENSHOTS_DIR: /data/earnings_screenshots
     ports:
-      - "8080:8080"
+      # Host 18080 — avoids conflict with Apache/EDB PEM or AiToEarn on 8080/9080
+      - "18080:8080"
     volumes:
       - ./data/panels:/data/panels
       - ./data/videos:/data/videos
@@ -140,6 +154,7 @@ services:
       - ../TiktokAutoUploader:/TiktokAutoUploader:ro
       - ../TiktokUploader:/TiktokUploader
       - ./data/obsidian-vault:/data/obsidian-vault
+      - ./data/earnings_screenshots:/data/earnings_screenshots
     depends_on:
       postgres:
         condition: service_healthy
@@ -164,6 +179,8 @@ services:
     volumes:
       - ./scripts:/app/scripts:ro
       - ./data/logs:/data/logs
+      - ./data/videos:/data/videos:ro
+      - ./data/arbitrage_videos:/data/arbitrage_videos:ro
       - ./data/obsidian-vault:/data/obsidian-vault
     depends_on:
       python-worker:

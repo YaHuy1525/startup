@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Manager-led CrewAI pipeline for manga arbitrage content.
+Manager-led CrewAI pipeline for short-form content arbitrage.
 
 Replaces the linear script chain with an autonomous crew that:
   1. Discovers trending content (Scout)
@@ -11,8 +11,8 @@ Replaces the linear script chain with an autonomous crew that:
      reassigns tasks, and pivots content strategy based on memory.
 
 Usage:
-    python3 scripts/crew/pipeline_crew.py --prompt "Post 5 viral JJK manga edits today" --count 5
-    python3 scripts/crew/pipeline_crew.py --prompt "Find trending One Piece content" --count 3 --dry-run
+    python3 scripts/crew/pipeline_crew.py --prompt "Post 5 viral sports clips today" --count 5
+    python3 scripts/crew/pipeline_crew.py --prompt "Find trending car content" --count 3 --dry-run
 """
 import os, sys, json, argparse
 from dotenv import load_dotenv
@@ -32,7 +32,7 @@ def build_tasks(agents: dict, prompt: str, target_count: int, dry_run: bool = Fa
     from scripts.crew.tools import (
         fetch_tiktok_trends, query_trend_memory, get_declining_trends_tool,
         source_youtube_assets, check_content_duplicate, download_pending_assets,
-        upload_to_tiktok_v2, upload_to_tiktok_v1, upload_to_youtube,
+        upload_to_tiktok_v1, upload_to_youtube,
         get_account_health_tool, get_available_tiktok_accounts, quarantine_account,
         record_upload_result, register_content_fingerprint,
         record_trend_performance,
@@ -96,7 +96,7 @@ def build_tasks(agents: dict, prompt: str, target_count: int, dry_run: bool = Fa
     ) if dry_run else (
         "Upload the downloaded videos to both TikTok AND YouTube Shorts:\n"
         "1. For TikTok: Call get_available_tiktok_accounts. For each video, call get_account_health "
-        "to verify the account is healthy. Try upload_to_tiktok_v2 first, then fallback to V1.\n"
+        "to verify the account is healthy. Use upload_to_tiktok_v1 only (TiktokAutoUploader).\n"
         "2. For YouTube Shorts: Use upload_to_youtube for every video.\n"
         "3. If a TikTok account fails twice, quarantine it.\n"
         "4. After each upload (TikTok or YouTube), call record_upload_result.\n"
@@ -114,7 +114,7 @@ def build_tasks(agents: dict, prompt: str, target_count: int, dry_run: bool = Fa
         agent=agents["operator"],
         tools=[] if dry_run else [
             get_available_tiktok_accounts, get_account_health_tool,
-            upload_to_tiktok_v2, upload_to_tiktok_v1, upload_to_youtube,
+            upload_to_tiktok_v1, upload_to_youtube,
             quarantine_account, record_upload_result, register_content_fingerprint,
         ],
         context=[task_download],
@@ -137,7 +137,46 @@ def build_tasks(agents: dict, prompt: str, target_count: int, dry_run: bool = Fa
         context=[task_upload],
     )
 
-    return [task_trend_discovery, task_source_assets, task_download, task_upload, task_report]
+    task_engage = Task(
+        description=(
+            "After content is published, run the engagement cycle:\n"
+            "1. Review the recently published videos from the upload results.\n"
+            "2. Identify which platforms have the most engagement potential.\n"
+            "3. Execute automated likes on target niche content.\n"
+            "4. Generate and post smart AI replies to top comments.\n"
+            "5. Follow accounts in the target niche to grow network.\n"
+            "6. Mine comments for high-conversion signals.\n"
+            "7. Report engagement actions taken and signals found."
+        ),
+        expected_output=(
+            "A JSON object: {\"actions_taken\": N, \"platforms_engaged\": [...], "
+            "\"signals_found\": N, \"recommendations\": [...]}"
+        ),
+        agent=agents["engager"],
+        tools=[],
+        context=[task_report],
+    )
+
+    task_monetize = Task(
+        description=(
+            "After the full content lifecycle, maximize revenue:\n"
+            "1. Scan the marketplace for open promotion tasks matching the creator's niche.\n"
+            "2. Match published content with the highest-paying CPS/CPE/CPM tasks.\n"
+            "3. Calculate estimated earnings based on engagement metrics.\n"
+            "4. Submit the top 3 task matches for creator review.\n"
+            "5. Report total available earnings opportunity."
+        ),
+        expected_output=(
+            "A JSON object: {\"tasks_matched\": N, \"estimated_earnings\": 0.0, "
+            "\"top_opportunities\": [...], \"recommendations\": [...]}"
+        ),
+        agent=agents["monetizer"],
+        tools=[],
+        context=[task_engage],
+    )
+
+    return [task_trend_discovery, task_source_assets, task_download, task_upload,
+            task_report, task_engage, task_monetize]
 
 
 def run_pipeline(prompt: str, target_count: int = 5, dry_run: bool = False) -> dict:
@@ -161,7 +200,10 @@ def run_pipeline(prompt: str, target_count: int = 5, dry_run: bool = False) -> d
     tasks  = build_tasks(agents, prompt, target_count, dry_run)
 
     # In sequential mode, all agents run tasks explicitly as defined
-    worker_agents = [agents["manager"], agents["scout"], agents["harvester"], agents["operator"], agents["analyst"]]
+    worker_agents = [
+        agents["manager"], agents["scout"], agents["harvester"],
+        agents["operator"], agents["analyst"], agents["engager"], agents["monetizer"],
+    ]
 
     crew = Crew(
         agents=worker_agents,
@@ -188,7 +230,7 @@ def run_pipeline(prompt: str, target_count: int = 5, dry_run: bool = False) -> d
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run the CrewAI manga arbitrage pipeline")
+    parser = argparse.ArgumentParser(description="Run the CrewAI short-form arbitrage pipeline")
     parser.add_argument("--prompt",  required=True, help="Natural language goal for the crew")
     parser.add_argument("--count",   type=int, default=5, help="Target number of uploads")
     parser.add_argument("--dry-run", action="store_true", help="Plan only, no actual uploads")

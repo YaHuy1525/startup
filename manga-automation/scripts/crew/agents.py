@@ -1,12 +1,14 @@
 """
-CrewAI Agent definitions for the Manga Arbitrage pipeline.
+CrewAI Agent definitions for the AiToEarn autonomous pipeline.
 
 Agents:
   - manager      : Director — delegates tasks, handles failures autonomously
-  - scout        : Trend Scout — finds viral TikTok content
-  - harvester    : YouTube Harvester — sources raw video assets
-  - operator     : Publisher — uploads to TikTok with stealth
+  - scout        : Trend Scout — finds viral content across platforms
+  - harvester    : Content Harvester — sources raw assets from multiple platforms
+  - operator     : Publisher — uploads to TikTok/YouTube/Instagram/etc.
   - analyst      : Reporter — writes results to ChromaDB + dashboard
+  - engager      : Engagement Agent — auto-likes, comments, follows
+  - monetizer    : Monetization Agent — marketplace matching + CPS/CPE/CPM tracking
 """
 import os
 from dotenv import load_dotenv
@@ -28,16 +30,18 @@ def _make_llm() -> LLM:
     """
     anthropic_key  = os.environ.get("ANTHROPIC_API_KEY")
     openrouter_key = os.environ.get("OPEN_ROUTER") or os.environ.get("OPENROUTER_API_KEY")
+    anthropic_model = os.environ.get("CREWAI_ANTHROPIC_MODEL", os.environ.get("EDITORIAL_MODEL", "claude-sonnet-4-20250514"))
+    openrouter_model = os.environ.get("CREWAI_OPENROUTER_MODEL", "openrouter/anthropic/claude-3.5-sonnet")
 
     # Prefer Anthropic — it's already funded and in the container
     if anthropic_key:
         return LLM(
-            model="claude-3-haiku-20240307",  # fast + cheap for agent loops
+            model=anthropic_model,
             api_key=anthropic_key,
         )
     elif openrouter_key:
         return LLM(
-            model="openrouter/anthropic/claude-haiku-4.5",
+            model=openrouter_model,
             api_key=openrouter_key,
             base_url="https://openrouter.ai/api/v1",
         )
@@ -139,10 +143,46 @@ def build_agents() -> dict:
         allow_delegation=False,
     )
 
+    engager = Agent(
+        role="Engagement Agent",
+        goal=(
+            "Automatically engage with published content across platforms. Like, comment, "
+            "and follow target accounts to boost reach and trigger reciprocity. Mine comments "
+            "for high-conversion signals (buying intent, pain points, viral hooks)."
+        ),
+        backstory=(
+            "You are a growth hacker who understands that publishing alone is not enough — "
+            "engagement drives the algorithm. You interact naturally, generate smart AI "
+            "replies, and extract actionable signals from audience feedback."
+        ),
+        llm=llm,
+        verbose=True,
+        allow_delegation=False,
+    )
+
+    monetizer = Agent(
+        role="Monetization Agent",
+        goal=(
+            "Maximize creator revenue through marketplace task matching (CPS/CPE/CPM), "
+            "settlement tracking, and earnings optimization. Match the creator's content "
+            "niche with the highest-paying merchant promotion tasks."
+        ),
+        backstory=(
+            "You are a monetization specialist who knows every revenue model for content "
+            "creators. You continuously scan the marketplace for high-paying tasks, "
+            "track earnings across all settlement models, and optimize for maximum ROI."
+        ),
+        llm=llm,
+        verbose=True,
+        allow_delegation=False,
+    )
+
     return {
         "manager":   manager,
         "scout":     scout,
         "harvester": harvester,
         "operator":  operator,
         "analyst":   analyst,
+        "engager":   engager,
+        "monetizer": monetizer,
     }

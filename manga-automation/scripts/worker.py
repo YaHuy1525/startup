@@ -1,31 +1,43 @@
 #!/usr/bin/env python3
 """
 Python worker HTTP server.
-n8n calls these endpoints instead of running docker exec.
-Runs all Python scripts as in-process functions.
+n8n / Telegram / external callers use these endpoints.
 
-Endpoints:
-    POST /fetch-trending        body: { limit: 20 }
-    POST /fetch-chapter         body: { manga_id: 1 }
-    POST /download-panels       body: { chapter_id: 1 }
-    POST /check-duplicates      body: { chapter_id: 1 }
-    POST /generate-video        body: { chapter_id: 1 }
-    POST /upload-tiktok         body: { video_id: 1 }
-    POST /detect-shadow-ban     body: {}
-    GET  /health
+AiToEarn Pipeline (primary):
+    POST /aitoearn/pipeline     body: { category?, mode?: "light"|"full" }
+    POST /aitoearn/stage/trend     body: { category?, limit? }
+    POST /aitoearn/stage/create    body: { limit? }
+    POST /aitoearn/stage/publish   body: {}
+    POST /aitoearn/stage/engage    body: { platform? }
+    POST /aitoearn/stage/monetize  body: { creator_id? }
 
-    ── CrewAI Agent ──────────────────────────────────────────────────────────
+CrewAI Agent Pipeline:
     POST /api/summon-agent      body: { prompt, target_count, dry_run, sync }
-    POST /api/memory/stats      body: {}
-    POST /api/memory/query-trends body: { query, n }
-    POST /api/memory/declining  body: {}
+
+Arbitrage Pipeline:
+    POST /arbitrage/discover-trends  body: { region?, limit? }
+    POST /arbitrage/source-assets    body: { limit? }
+    POST /arbitrage/download         body: { batch? }
+    POST /arbitrage/distribute       body: { platforms?, batch? }
+
+TikTok Uploader (kept as an option):
+    POST /upload-tiktok          body: { video_id }
+
+Legacy manga endpoints (deprecated — use AiToEarn pipeline instead):
+    POST /fetch-trending         body: { limit: 20 }
+    POST /fetch-chapter          body: { manga_id: 1 }
+    POST /download-panels        body: { chapter_id: 1 }
+    POST /check-duplicates       body: { chapter_id: 1 }
+    POST /generate-video         body: { chapter_id: 1 }
+    POST /detect-shadow-ban      body: {}
+    GET  /health
 """
 import json
 import os
 import sys
 import time
 import traceback
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -86,9 +98,29 @@ import scripts.omnichannel_distributor as omnichannel
 import scripts.editorial_publisher as editorial
 import scripts.digital_product_generator as digital_products
 import scripts.upload_instagram as upload_instagram
+import scripts.meta_graph_publish as meta_graph_publish
 import scripts.upload_pinterest as upload_pinterest
 import scripts.podcast_rss_generator as podcast_rss
+import scripts.adapters.postiz_client as postiz_client
+import scripts.adapters.postiz_bridge as postiz_bridge
+import scripts.adapters.aitoearn_client as aitoearn_client
+import scripts.rpa.playwright_rpa_boilerplate as rpa_pw
+import scripts.longform_video_boilerplate as longform_video
+import scripts.marketplace_listings_boilerplate as marketplace_listings
+import scripts.hermes_agent as hermes_agent
+import scripts.earnings_proof_ingest as earnings_ingest
+import scripts.finance_video_generator as finance_video
+import scripts.finance_video_ai as finance_video_ai
+import scripts.youtube_download_ingest as youtube_download_ingest
 from scripts.utils import database as db
+from scripts.aitoearn_pipeline import (
+    stage_trend,
+    stage_create,
+    stage_publish,
+    stage_engage,
+    stage_monetize,
+    run_full_pipeline,
+)
 
 
 def _run_deerflow(body: dict) -> dict:
@@ -166,6 +198,79 @@ def _memory_stats() -> dict:
         return {"error": str(e)}
 
 
+# ── AiToEarn Pipeline Handlers ────────────────────────────────────────────────
+
+
+def _aitoearn_pipeline(body: dict) -> dict:
+    """Run the full 5-stage AiToEarn pipeline."""
+    category = body.get("category", "")
+    mode = body.get("mode", "full")
+    publish_options = body.get("publish_options")
+    if not isinstance(publish_options, dict):
+        publish_options = {}
+    return run_full_pipeline(category=category, mode=mode, publish_options=publish_options)
+
+
+def _aitoearn_stage_trend(body: dict) -> dict:
+    return stage_trend(category=body.get("category", ""), limit=int(body.get("limit", 10)))
+
+
+def _aitoearn_stage_create(body: dict) -> dict:
+    return stage_create(limit=int(body.get("limit", 5)))
+
+
+def _aitoearn_stage_publish(body: dict) -> dict:
+    return stage_publish(body)
+
+
+def _aitoearn_stage_engage(body: dict) -> dict:
+    return stage_engage(platform=body.get("platform", "tiktok"))
+
+
+def _aitoearn_stage_monetize(body: dict) -> dict:
+    return stage_monetize(creator_id=int(body.get("creator_id", 1)))
+
+
+def _aitoearn_accounts(body: dict) -> dict:
+    platform = body.get("platform")
+    return aitoearn_client.list_accounts(platform=platform)
+
+
+def _aitoearn_publish_status(body: dict) -> dict:
+    flow_id = str(body.get("flow_id") or body.get("flowId") or "").strip()
+    if not flow_id:
+        return {"error": "flow_id is required"}
+    return aitoearn_client.get_publishing_task_status(flow_id=flow_id)
+
+
+def _aitoearn_publish(body: dict) -> dict:
+    """
+    Publish to AiToEarn connected accounts with fanout controls.
+    Body example:
+      {
+        "video_url": "https://...",
+        "channels": ["tiktok","youtube","instagram"],
+        "account_ids": ["tiktok_xxx","youtube_yyy"],
+        "selected_accounts": {"tiktok": ["tiktok_xxx"], "youtube": ["youtube_yyy"]},
+        "title": "...",
+        "desc": "...",
+        "topics": ["ai","marketing"]
+      }
+    """
+    return stage_publish(body)
+
+
+def _aitoearn_publish_restrictions(body: dict) -> dict:
+    platforms_raw = body.get("platforms") or []
+    if isinstance(platforms_raw, str):
+        platforms = [x.strip() for x in platforms_raw.split(",") if x.strip()]
+    elif isinstance(platforms_raw, list):
+        platforms = platforms_raw
+    else:
+        platforms = []
+    return aitoearn_client.get_publish_restrictions(platforms=platforms)
+
+
 def _run_agent_crew(body: dict) -> dict:
     """
     Dispatch the CrewAI pipeline in a background thread and return immediately
@@ -175,7 +280,7 @@ def _run_agent_crew(body: dict) -> dict:
     import threading, uuid
     from scripts.crew.pipeline_crew import run_pipeline
 
-    prompt       = body.get("prompt", "Find top trending manga content and post 5 videos")
+    prompt       = body.get("prompt", "Find top trending short-form content and post 5 videos")
     target_count = int(body.get("target_count", 5))
     dry_run      = bool(body.get("dry_run", False))
     sync         = bool(body.get("sync", False))
@@ -371,13 +476,29 @@ def _gig_finalize(body: dict) -> dict:
 
 
 ROUTES = {
+    # ── AiToEarn Pipeline (primary) ───────────────────────────────────────────
+    "/aitoearn/pipeline":       _aitoearn_pipeline,
+    "/aitoearn/stage/trend":    _aitoearn_stage_trend,
+    "/aitoearn/stage/create":   _aitoearn_stage_create,
+    "/aitoearn/stage/publish":  _aitoearn_stage_publish,
+    "/aitoearn/stage/engage":   _aitoearn_stage_engage,
+    "/aitoearn/stage/monetize": _aitoearn_stage_monetize,
+    # MCP account ops + publish fanout
+    "/aitoearn/accounts":       _aitoearn_accounts,
+    "/aitoearn/publish":        _aitoearn_publish,
+    "/aitoearn/publish/status": _aitoearn_publish_status,
+    "/aitoearn/publish/restrictions": _aitoearn_publish_restrictions,
+    # ── Legacy manga endpoints (deprecated — use AiToEarn pipeline) ──────────
     "/fetch-trending":    lambda body: fetch_trending.main(body.get("limit", 20)),
     "/fetch-chapter":     lambda body: fetch_chapter.main(body["manga_id"]),
     "/download-panels":   lambda body: download_panels.main(body["chapter_id"]),
     "/check-duplicates":  lambda body: check_duplicates.main(body["chapter_id"]),
     "/generate-video":    lambda body: generate_video.main(body["chapter_id"]),
+    # ── TikTok Upload (kept as an option) ─────────────────────────────────────
     "/upload-tiktok":     lambda body: upload_tiktok.main(body["video_id"]),
     "/upload-youtube":    lambda body: __import__('scripts.upload_youtube').upload_youtube.main(body["video_id"]),
+    # POST /youtube/download-ingest  { url, caption?, create_video?: true }
+    "/youtube/download-ingest": lambda body: youtube_download_ingest.main(body),
     "/yt-to-tiktok":      lambda body: __import__('scripts.yt_to_tiktok_manual').yt_to_tiktok_manual.main(body.get("url") or None, body.get("caption") or None, body.get("hashtags") or None),
     "/detect-shadow-ban": lambda body: detect_shadow_ban.main(
         body.get("min_posts", 5), body.get("threshold", 0.10)
@@ -471,10 +592,14 @@ ROUTES = {
     "/genesis/discover":  lambda body: genesis_discover.main(body),
     "/genesis/briefs":    lambda body: genesis_briefs.main(body),
     # ── Omnichannel Distribution (Pods 1-5) ──────────────────────────────────
-    # POST /omnichannel/distribute  { brief_id: 1, channels: "editorial,products" }
+    # POST /omnichannel/distribute  { brief_id, profile?, channels?, postiz_multichannel?, postiz_media_path? }
     # POST /omnichannel/auto        { action: "auto", limit: 3 }
     "/omnichannel/distribute": lambda body: omnichannel.main(body),
     "/omnichannel/auto":       lambda body: omnichannel.main({**body, "action": "auto"}),
+    # POST /omnichannel/plan  { category_slug: "tech", profile: "full" }
+    "/omnichannel/plan":       lambda body: omnichannel.main({**body, "action": "plan"}),
+    # POST /omnichannel/plan-all  { profile: "full" } — all genesis_categories
+    "/omnichannel/plan-all":   lambda body: omnichannel.main({**body, "action": "plan_all_categories"}),
     # ── Editorial Publisher (Pod 3) ──────────────────────────────────────────
     # POST /editorial/publish  { brief_id: 1, platforms: "medium,substack,linkedin" }
     "/editorial/publish": lambda body: editorial.main(body),
@@ -483,12 +608,71 @@ ROUTES = {
     "/products/generate": lambda body: digital_products.main(body),
     # ── Platform Uploaders ───────────────────────────────────────────────────
     # POST /upload/instagram  { video_path, caption, account, hashtags }
-    # POST /upload/pinterest  { video_path, title, description, board_id }
+    # POST /upload/meta/instagram  { video_url, caption } — Graph API, needs public HTTPS URL
+    # POST /upload/meta/facebook   { video_url, caption }
+    # POST /upload/meta/threads    { video_url, text }
     "/upload/instagram": lambda body: upload_instagram.main(body),
+    "/upload/meta/instagram": lambda body: meta_graph_publish.http_instagram(body),
+    "/upload/meta/facebook": lambda body: meta_graph_publish.http_facebook(body),
+    "/upload/meta/threads": lambda body: meta_graph_publish.http_threads(body),
+    "/upload/meta/debug": lambda body: meta_graph_publish.debug_connection(),
     "/upload/pinterest": lambda body: upload_pinterest.main(body),
     # ── Podcast RSS (Pod 4) ──────────────────────────────────────────────────
     # POST /podcast/generate-feed  { limit: 50 }
     "/podcast/generate-feed": lambda body: podcast_rss.main(body),
+    # ── Postiz unified publishing (alternative to brittle per-site RPA) ────────
+    # POST /adapters/postiz  { action, ... } — see scripts/adapters/postiz_client.py
+    "/adapters/postiz": lambda body: postiz_client.main(body),
+    # POST /adapters/postiz/schedule-brief  { brief_id, media_path?, platform_slugs?, schedule_iso?, link? }
+    "/adapters/postiz/schedule-brief": lambda body: postiz_bridge.main(
+        {**body, "action": "schedule_brief"}
+    ),
+    # POST /adapters/postiz/integrations-map  {} — merged provider→id map for debugging
+    "/adapters/postiz/integrations-map": lambda body: postiz_bridge.main(
+        {"action": "resolve_integrations"}
+    ),
+    # ── Playwright RPA fallback (explicit dry-run defaults) ────────────────────
+    # POST /rpa/session  { target: "pinterest", dry_run: true, caption: "..." }
+    "/rpa/session": lambda body: rpa_pw.main(body),
+    # ── Pod 2 long-form video (plan-only until vendor keys wired) ─────────────
+    # POST /pod2/longform/queue  { brief_id: 1, target_duration_sec: 600 }
+    "/pod2/longform/queue": lambda body: longform_video.main(body),
+    # ── Gumroad / Etsy readiness —──────────────────────────────────────────────
+    # POST /marketplace/ping  { platform: "gumroad" | "etsy" }
+    "/marketplace/ping": lambda body: marketplace_listings.main(body),
+    # ── Hermes Claude Ops Agent ────────────────────────────────────────────────
+    # POST /hermes/status   {}
+    # POST /hermes/diagnose { objective? }
+    # POST /hermes/cycle    { execute_actions?, objective?, profile? }
+    # POST /hermes/full-ops { category?, mode?, profile?, dry_run? }
+    "/hermes/status": lambda body: hermes_agent.main({**body, "action": "status"}),
+    "/hermes/diagnose": lambda body: hermes_agent.main({**body, "action": "diagnose"}),
+    "/hermes/cycle": lambda body: hermes_agent.main({**body, "action": "cycle"}),
+    "/hermes/full-ops": lambda body: hermes_agent.main({**body, "action": "full_ops"}),
+    # ── Finance / Side-Hustle: Earnings Proof + Referral Registry ─────────────
+    # POST /earnings/ingest  { action: "scan" | "weekly-recap" | "update-earnings" }
+    # POST /earnings/list    { tier?: 1|2|3 }
+    "/earnings/ingest": lambda body: earnings_ingest.main(body),
+    "/earnings/list":   lambda body: earnings_ingest.list_referral_platforms(
+        tier=body.get("tier")
+    ),
+    # ── Finance Video Generator ───────────────────────────────────────────────
+    # POST /finance/generate-video { type: "proof"|"voiceover"|"hook", week_iso?, brief_id? }
+    "/finance/generate-video": lambda body: finance_video.main(body),
+    # POST /finance/ai-video { provider: "creatify"|"heygen"|"invideo", week_iso?, style? }
+    "/finance/ai-video":       lambda body: finance_video_ai.main(body),
+    # POST /finance/list-avatars { provider: "creatify"|"heygen" }
+    "/finance/list-avatars":   lambda body: (
+        finance_video_ai.creatify_list_avatars() if body.get("provider", "creatify") == "creatify"
+        else finance_video_ai.heygen_list_avatars()
+    ),
+    # ── Hermes Agent ──────────────────────────────────────────────────────────────
+    # POST /hermes/finance-pipeline { provider?, background?, week_iso?, profile? }
+    # Full pipeline: scan → generate video → distribute → Claude health-check
+    "/hermes/finance-pipeline": lambda body: hermes_agent.run_finance_pipeline(body),
+    # POST /hermes/viral-pipeline { provider?, background?, profile? }
+    # Full pipeline: discover trends → draft brief → generate video → distribute → Claude health-check
+    "/hermes/viral-pipeline": lambda body: hermes_agent.run_viral_pipeline(body),
 }
 
 
@@ -582,6 +766,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
-    server = HTTPServer(("0.0.0.0", port), Handler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     logger.info(f"Python worker listening on port {port}")
     server.serve_forever()

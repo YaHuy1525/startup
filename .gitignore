@@ -111,3 +111,6 @@ manga-automation/data/redis/
 manga-automation/data/postgres/
 manga-automation/data/obsidian-vault/
 manga-automation/data/music/
+
+# Upstream AiToEarn clone — secrets
+AiToEarn/.env

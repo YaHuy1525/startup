@@ -28,6 +28,13 @@ def _clean_text(text: str) -> str:
     return text
 
 
+def _looks_like_asset_title(text: str) -> bool:
+    s = (text or "").strip().lower()
+    if not s:
+        return False
+    return bool(re.search(r"\basset[_\-\s]?\d+\b", s) or re.search(r"\basset[_\-\s]?0+\b", s))
+
+
 def _extract_title_hashtags(raw_title: str) -> tuple[str, list[str]]:
     """
     Pull hashtag-like tokens from the original title and keep a cleaned base title.
@@ -46,6 +53,7 @@ def _extract_title_hashtags(raw_title: str) -> tuple[str, list[str]]:
             seen.add(low)
             dedup.append(tag)
     clean_title = _clean_text(re.sub(r"#([A-Za-z0-9_]+)", "", title))
+    clean_title = re.sub(r"\.(mp4|mov|webm|mkv)$", "", clean_title, flags=re.IGNORECASE)
     return clean_title, dedup
 
 
@@ -54,7 +62,7 @@ def _paraphrase_title(raw_title: str) -> str:
     Lightweight deterministic paraphrase to avoid direct title copying.
     """
     base, _ = _extract_title_hashtags(raw_title)
-    if not base:
+    if not base or _looks_like_asset_title(base):
         return "Must watch short clip"
 
     # Keep intent but reframe wording.
@@ -280,6 +288,9 @@ def upload_to_tiktok_v2(video_path: str, account: str, title: str = None) -> str
     except Exception as e:
         logger.error(f"Failed to auto-generate caption for {video_path}: {e}")
 
+    if _looks_like_asset_title(final_title):
+        final_title = "Must watch short clip"
+
     try:
         uploader_dir = os.path.abspath(os.environ.get("TIKTOK_UPLOADER_V2_DIR", "/TiktokUploader"))
         if not os.path.isdir(uploader_dir):
@@ -348,6 +359,9 @@ def upload_to_tiktok_v1(video_path: str, account: str, title: str = None) -> str
             final_tags = [f"#{x}" for x in c_tags]
     except Exception as e:
         logger.error(f"Failed to auto-generate caption for {video_path}: {e}")
+
+    if _looks_like_asset_title(final_title):
+        final_title = "Must watch short clip"
 
     if final_tags:
         final_title = f"{final_title} {' '.join(final_tags)}".strip()
@@ -427,6 +441,46 @@ def upload_to_youtube(video_path: str, video_id: int = None, title: str = None, 
         return json.dumps({"success": False, "error": result.get("error") or "youtube upload failed"})
     except Exception as e:
         logger.error(f"YouTube tool failed: {e}")
+        return json.dumps({"success": False, "error": str(e)})
+
+
+@tool("post_instagram_reel_graph")
+def post_instagram_reel_graph(video_url: str, caption: str = "") -> str:
+    """
+    Publish a Reel via Instagram Graph API (official). video_url MUST be a public HTTPS URL
+    reachable by Meta's servers (not a local file path). Uses INSTAGRAM_USER_ID and
+    INSTAGRAM_ACCESS_TOKEN or META_API_KEY. Returns JSON with success and ids or error.
+    """
+    try:
+        from scripts.meta_graph_publish import post_instagram_reel
+        return json.dumps(post_instagram_reel(video_url=video_url, caption=caption or ""), default=str)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)})
+
+
+@tool("post_facebook_reel_graph")
+def post_facebook_reel_graph(video_url: str, caption: str = "") -> str:
+    """
+    Publish a Page Reel via Facebook Graph API. video_url MUST be public HTTPS.
+    Uses FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN or META_API_KEY.
+    """
+    try:
+        from scripts.meta_graph_publish import post_facebook_page_reel
+        return json.dumps(post_facebook_page_reel(video_url=video_url, caption=caption or ""), default=str)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)})
+
+
+@tool("post_threads_video_graph")
+def post_threads_video_graph(video_url: str, text: str = "") -> str:
+    """
+    Publish a video post to Threads via Threads API. video_url MUST be public HTTPS.
+    Uses THREADS_USER_ID and THREADS_ACCESS_TOKEN or META_API_KEY.
+    """
+    try:
+        from scripts.meta_graph_publish import post_threads_video
+        return json.dumps(post_threads_video(video_url=video_url, text=text or ""), default=str)
+    except Exception as e:
         return json.dumps({"success": False, "error": str(e)})
 
 

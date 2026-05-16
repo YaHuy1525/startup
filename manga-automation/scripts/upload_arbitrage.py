@@ -50,7 +50,7 @@ def upload_arbitrage(asset_id: int):
     # We use the local path if it was downloaded via Apify, or fallback to the YouTube URL feature
     local_path = asset.get('local_path')
     youtube_url = asset.get('youtube_url')
-    caption = f"{asset.get('video_title')} #fyp #manga #anime"
+    caption = f"{asset.get('video_title')} #fyp #shorts #viral"
 
     command = [
         "python3", cli_path, "upload",

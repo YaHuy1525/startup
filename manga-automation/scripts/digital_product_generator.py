@@ -172,16 +172,22 @@ def generate_pdf_guide(brief: dict, output_path: str | None = None) -> str:
     return output_path
 
 
-def save_product(brief_id: int, product_path: str, title: str, category: str) -> int | None:
+def save_product(
+    brief_id: int,
+    product_path: str,
+    title: str,
+    category: str,
+    master_asset_id: int | None = None,
+) -> int | None:
     """Save product record to digital_products table."""
     return db.execute_returning(
         """
         INSERT INTO digital_products
             (master_asset_id, product_type, title, file_path, price_usd, platform, status)
-        VALUES (NULL, 'pdf_guide', %s, %s, 4.99, 'gumroad', 'draft')
+        VALUES (%s, 'pdf_guide', %s, %s, 4.99, 'gumroad', 'draft')
         RETURNING id
         """,
-        (title, product_path),
+        (master_asset_id, title[:500], product_path),
     )
 
 

@@ -121,7 +121,7 @@ def get_video(video_id: int) -> dict | None:
         JOIN manga_chapters mc ON v.chapter_id = mc.id
         JOIN manga m ON mc.manga_id = m.id
         LEFT JOIN selected_panels sp ON sp.chapter_id = mc.id
-        WHERE v.id = %s AND v.status = 'ready'
+        WHERE v.id = %s AND v.status IN ('ready', 'publishing')
         ORDER BY sp.selected_at DESC
         LIMIT 1
         """,
@@ -130,8 +130,8 @@ def get_video(video_id: int) -> dict | None:
 
 
 def build_caption(video: dict) -> str:
-    caption = video.get("caption") or f"Epic {video['manga_title']} moment! 🔥"
-    hashtags: list[str] = video.get("hashtags") or ["#manga", "#anime"]
+    caption = video.get("caption") or "Must watch moment! 🔥"
+    hashtags: list[str] = video.get("hashtags") or ["#fyp", "#shorts", "#viral"]
     hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
     full = f"{caption}\n\n{hashtag_str}"
     return full[:2200]
@@ -359,16 +359,20 @@ def record_result(video_id: int, account_id: int, result: dict):
 _HOST_VIDEOS_DIR = os.path.abspath(
     os.environ.get("HOST_VIDEOS_DIR") or os.path.join(os.path.dirname(__file__), "..", "data", "videos")
 )
+_ARBITRAGE_VIDEOS_DIR = os.path.abspath(
+    os.environ.get("ARBITRAGE_VIDEOS_DIR") or os.path.join(os.path.dirname(__file__), "..", "data", "arbitrage_videos")
+)
 
 
 def resolve_video_path(file_path: str) -> str:
-    """Translate a Docker-style /data/videos/... path to the actual host filesystem path."""
+    """Map container paths (/data/...) to host paths when running outside Docker."""
     if os.path.exists(file_path):
         return file_path
     filename = os.path.basename(file_path)
-    candidate = os.path.join(_HOST_VIDEOS_DIR, filename)
-    if os.path.exists(candidate):
-        return candidate
+    for base in (_HOST_VIDEOS_DIR, _ARBITRAGE_VIDEOS_DIR):
+        candidate = os.path.join(base, filename)
+        if os.path.exists(candidate):
+            return candidate
     return file_path
 
 
@@ -403,8 +407,9 @@ def main(video_id: int) -> dict:
         auth = f"{account['proxy_user']}:{account['proxy_pass']}@" if account.get("proxy_user") else ""
         proxy_url = f"http://{auth}{account['ip_address']}:{account['port']}"
 
-    use_v2 = os.environ.get("USE_NEW_TIKTOK_UPLOADER", "false").lower() == "true"
-    
+    use_v2 = os.environ.get("USE_NEW_TIKTOK_UPLOADER", "false").lower() in ("true", "1", "yes")
+    logger.info(f"TikTok upload path: {'v2 (TiktokUploader)' if use_v2 else 'v1 (TiktokAutoUploader)'}")
+
     if use_v2:
         result = do_tiktok_upload_v2(
             video_path=video_path,

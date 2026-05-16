@@ -5,8 +5,9 @@ httpx>=0.27.0
 # ─── Database ──────────────────────────────────────────────────────────────────
 psycopg2-binary>=2.9.9
 
-# ─── Browser Automation (TikTok upload) ───────────────────────────────────────
+# ─── Browser Automation (TikTok upload + RPA fallbacks) ─────────────────────
 playwright>=1.44.0
+playwright-stealth>=2.0.0       # fingerprint hygiene for Playwright RPA paths
 
 # ─── TiktokAutoUploader dependencies ──────────────────────────────────────────
 fake-useragent>=1.4.0

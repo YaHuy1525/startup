@@ -1,6 +1,91 @@
 # Current Project Status
 
-**Last Updated**: March 31, 2026
+**Last Updated**: May 14, 2026
+
+---
+
+## 🎯 Phase 3: AiToEarn Transformation — COMPLETE
+
+The system has been transformed from a manga-only pipeline into a general-purpose AiToEarn content marketing platform with 5 autonomous stages.
+
+### What's New:
+
+#### Phase 3.6: AiToEarn-First Ops Routing ✅ COMPLETE
+- Added centralized official AiToEarn adapter: `scripts/adapters/aitoearn_client.py`
+- Added startup validation + health probe surfaced in Hermes status snapshots
+- Added Hermes full lifecycle endpoint: `POST /hermes/full-ops`
+- Updated Stage 3 publish routing:
+  - Primary: official AiToEarn stage endpoint
+  - Fallback: local TikTok uploader when enabled
+- Added `video_id` handling path in `omnichannel_distributor.py` for AiToEarn-first publish routing
+- Added optional arbitrage publish primary switch: `ARBITRAGE_AITOEARN_PRIMARY`
+- Added `.env.example` + docs for `AITOEARN_*` variables and rollout guardrails
+
+#### Phase 3.1: Cross-Domain Trend Detection ✅ COMPLETE
+- **TrendDetector agent generalized**: No longer manga-only — covers all 8 genesis_categories (tech, gaming, finance, fiction, anime, movies, art, tiktok_trending)
+- **New trend sources**: Twitter/X, YouTube Trending, Reddit hot posts
+- **Enhanced TikTok trends**: fetch_tiktok_trends_apify.py with category matching
+- **Database**: trend_intel already has category_id FK; genesis_categories has subreddits + TikTok hashtags per category
+- Files: `scripts/fetch_twitter_trends.py`, `scripts/fetch_youtube_trends.py`, `scripts/fetch_reddit_trends.py`, `mastra-agents/src/agents/trendDetector.ts`
+
+#### Phase 3.2: Engagement Automation ✅ COMPLETE
+- **Browser automation**: Playwright-based stealth browser with proxy support (`scripts/engage/browser.py`)
+- **Smart commenting**: AI-powered replies in 5 tones via Anthropic-compatible API (`scripts/engage/commenter.py`)
+- **Auto-like**: Platform-specific selectors for TikTok/YouTube/Instagram/Twitter (`scripts/engage/liker.py`)
+- **Auto-follow**: Target discovery from trend_intel (`scripts/engage/follower.py`)
+- **Comment mining**: Signal pattern detection (buying_intent, pain_point, viral_hook) (`scripts/engage/comment_miner.py`)
+- **Brand monitoring**: Real-time mention tracking across platforms (`scripts/engage/brand_monitor.py`)
+- **Orchestrator**: Three modes (light/medium/full) (`scripts/engage/engine.py`)
+- Database: `database/migrations/012_engagement.sql` (engagement_runs, engagement_tasks, comment_analytics)
+
+#### Phase 3.3: Marketplace Monetization ✅ COMPLETE
+- **Task matching**: CPS/CPE/CPM merchant promotion task engine (`scripts/monetize/marketplace.py`)
+- **Settlement tracking**: Earnings calculation and history (`scripts/monetize/settlement.py`)
+- **Merchant API**: Task creation and performance endpoints (`scripts/monetize/merchant_api.py`)
+- Database: `database/migrations/013_marketplace.sql` (merchants, promotion_tasks, task_assignments, earnings)
+
+#### Phase 3.4: free-claude-code Integration ✅ COMPLETE
+- **LLM proxy**: All agents use `ANTHROPIC_BASE_URL` pointing to free-claude-code proxy
+- **Environment**: `.env.example` and `docker-compose.yml` updated with `ANTHROPIC_BASE_URL`
+- Supports all 7 free-claude-code providers through a single endpoint
+
+#### Phase 3.5: Autonomous Agent Pipeline ✅ COMPLETE
+- **Master orchestrator**: `scripts/aitoearn_pipeline.py` — 5-stage pipeline with per-stage functions
+- **CrewAI integration**: Added EngageAgent + MonetizeAgent to `scripts/crew/agents.py`
+- **7-task CrewAI pipeline**: Trend → Source → Download → Upload → Report → Engage → Monetize
+- **CLI**: `--once`, `--category`, `--mode light|full`, `--stage trend|create|publish|engage|monetize`
+
+### New Files Created (15):
+| File | Purpose |
+|---|---|
+| `scripts/fetch_twitter_trends.py` | X/Twitter trending topics |
+| `scripts/fetch_youtube_trends.py` | YouTube trending videos |
+| `scripts/fetch_reddit_trends.py` | Reddit hot/rising posts |
+| `scripts/engage/engine.py` | Engagement orchestrator |
+| `scripts/engage/commenter.py` | AI smart comment replies |
+| `scripts/engage/liker.py` | Auto-like automation |
+| `scripts/engage/follower.py` | Auto-follow automation |
+| `scripts/engage/comment_miner.py` | Comment mining for signals |
+| `scripts/engage/brand_monitor.py` | Brand mention tracking |
+| `scripts/engage/browser.py` | Playwright browser controller |
+| `scripts/monetize/marketplace.py` | Merchant task matching |
+| `scripts/monetize/settlement.py` | CPS/CPE/CPM tracking |
+| `scripts/monetize/merchant_api.py` | Merchant task creation API |
+| `scripts/aitoearn_pipeline.py` | Main pipeline orchestrator |
+| `database/migrations/012_engagement.sql` | Engagement tracking schema |
+| `database/migrations/013_marketplace.sql` | Marketplace schema |
+
+### Modified Files (6):
+| File | Change |
+|---|---|
+| `mastra-agents/src/agents/trendDetector.ts` | Generalized beyond manga to 8 categories |
+| `scripts/crew/agents.py` | Added EngageAgent and MonetizeAgent |
+| `scripts/crew/pipeline_crew.py` | Wired full 7-task pipeline |
+| `.env.example` | Added ANTHROPIC_BASE_URL, engagement, marketplace vars |
+| `docker-compose.yml` | Added ANTHROPIC_BASE_URL to services |
+| `README.md` | Transformed to AiToEarn documentation |
+
+---
 
 ## ✅ Phase 1: Core Automation System - COMPLETE
 
@@ -142,19 +227,31 @@ See [SAAS_IMPLEMENTATION_PLAN.md](./SAAS_IMPLEMENTATION_PLAN.md) for detailed ta
 - **Backend**: Node.js 20 + TypeScript (Mastra agents)
 - **Database**: PostgreSQL 15
 - **Cache**: Redis 7
-- **Video**: Remotion (React-based rendering)
-- **Python Worker**: FFmpeg + Playwright (TikTok uploads)
-- **Orchestration**: n8n workflows
+- **Vector Memory**: ChromaDB (trend performance, content fingerprints)
+- **Video**: Remotion (React-based rendering) + FFmpeg
+- **Python Worker**: FFmpeg + Playwright + CrewAI (content + upload + engagement + monetization)
+- **Orchestration**: CrewAI manager-led agents (primary) + n8n workflows (fallback)
+- **LLM Backend**: Anthropic-compatible proxy (free-claude-code) + direct Anthropic API
 - **Dashboard**: React + Vite + TypeScript
 - **Deployment**: Docker Compose
 
 ### Services Running:
 1. `postgres` - Database (port 5434)
 2. `redis` - Cache (port 6380)
-3. `manga-agents` - Node.js API server (port 3001)
-4. `python-worker` - Upload worker (port 8080)
-5. `n8n` - Workflow orchestrator (port 5679)
-6. `dashboard` - React frontend (port 3000)
+3. `chromadb` - Vector memory (port 8001)
+4. `manga-agents` - Node.js API server (port 3001)
+5. `python-worker` - Worker (port 8080) — CrewAI + FFmpeg + Playwright
+6. `telegram-bot` - Remote control bot
+7. `research-scheduler` - last30days trend ingest
+8. `n8n` - Workflow orchestrator (port 5679)
+9. `dashboard` - React frontend (port 3000)
+
+### AiToEarn Pipeline Stages:
+1. **Trend Detection** — TikTok, X/Twitter, YouTube, Reddit → trend_intel (8 categories)
+2. **Content Creation** — AI scripts, video generation, captions
+3. **Publishing** — 40+ platforms via omnichannel_distributor.py
+4. **Engagement** — Browser automation (like, comment, follow, mine)
+5. **Monetization** — CPS/CPE/CPM marketplace + settlement tracking
 
 ---
 
@@ -162,45 +259,48 @@ See [SAAS_IMPLEMENTATION_PLAN.md](./SAAS_IMPLEMENTATION_PLAN.md) for detailed ta
 
 ```
 manga-automation/
-├── mastra-agents/          # Node.js backend
+├── mastra-agents/               # Node.js backend
 │   ├── src/
-│   │   ├── agents/         # AI agents (trend, panel, caption, etc.)
-│   │   ├── tools/          # Utilities (database, queue, hashtags, etc.)
-│   │   └── server.ts       # Express API server
+│   │   ├── agents/              # AI agents (trendDetector, scriptwriter, caption, etc.)
+│   │   ├── tools/               # Utilities (database, queue, hashtags, etc.)
+│   │   └── server.ts            # Express API server
 │   └── package.json
-├── remotion-renderer/      # Video generation
+├── scripts/                     # Python workers
+│   ├── aitoearn_pipeline.py     # Master 5-stage orchestrator
+│   ├── fetch_tiktok_trends_apify.py  # TikTok trend fetcher
+│   ├── fetch_twitter_trends.py  # X/Twitter trend fetcher
+│   ├── fetch_youtube_trends.py  # YouTube trend fetcher
+│   ├── fetch_reddit_trends.py   # Reddit trend fetcher
+│   ├── trend_content_planner.py # AI content planner
+│   ├── generate_video.py        # FFmpeg video builder
+│   ├── upload_tiktok.py         # TikTok uploader
+│   ├── upload_youtube.py        # YouTube Shorts uploader
+│   ├── omnichannel_distributor.py # 40+ platform distributor
+│   ├── engage/                  # Browser automation engagement
+│   │   ├── engine.py            # Orchestrator
+│   │   ├── commenter.py         # AI smart replies
+│   │   ├── liker.py             # Auto-like
+│   │   ├── follower.py          # Auto-follow
+│   │   ├── comment_miner.py     # Comment signals
+│   │   └── browser.py           # Playwright controller
+│   ├── monetize/                # Marketplace monetization
+│   │   ├── marketplace.py       # Merchant task matching
+│   │   ├── settlement.py        # Earnings tracking
+│   │   └── merchant_api.py      # Merchant API
+│   └── crew/                    # CrewAI orchestration
+│       ├── agents.py            # 7 AI agents
+│       ├── pipeline_crew.py     # 7-task pipeline
+│       └── tools.py             # Agent tools
+├── dashboard/                   # React frontend
 │   ├── src/
-│   │   ├── MangaRecap.tsx  # Main composition
-│   │   ├── KenBurnsPanel.tsx # Panel effects
-│   │   └── render-video.ts # CLI renderer
-│   └── package.json
-├── scripts/                # Python workers
-│   ├── upload_tiktok.py    # TikTok uploader
-│   ├── fetch_trending_manga.py
-│   ├── download_panels.py
-│   └── worker.py           # Main worker
-├── dashboard/              # React frontend
-│   ├── src/
-│   │   ├── pages/          # Dashboard pages
+│   │   ├── pages/               # Dashboard pages
 │   │   └── App.tsx
 │   └── package.json
 ├── database/
-│   ├── schema.sql          # Main schema
-│   └── migrations/         # Schema updates
-├── n8n-workflows/          # Workflow definitions
-│   ├── 01_trend_detection.json
-│   ├── 02_video_generation.json
-│   ├── 03_publisher.json
-│   ├── 04_shadow_ban_monitor.json
-│   └── 05_manual_chapter_selection.json
-├── data/                   # Persistent data
-│   ├── postgres/           # Database files
-│   ├── redis/              # Cache files
-│   ├── panels/             # Downloaded manga panels
-│   ├── videos/             # Generated videos
-│   └── music/              # Background music
-├── docker-compose.yml      # Service orchestration
-└── Dockerfile              # Container definitions
+│   ├── schema.sql               # Main schema
+│   └── migrations/              # 013 migrations (including engagement + marketplace)
+├── n8n-workflows/               # Workflow definitions (CrewAI fallback)
+└── data/                        # Persistent data
 ```
 
 ---
@@ -210,19 +310,24 @@ manga-automation/
 ### Start Services:
 ```bash
 cd manga-automation
-docker-compose up -d
+docker compose up -d
 ```
 
-### View Logs:
+### Run AiToEarn Pipeline:
 ```bash
-docker logs manga-automation-manga-agents-1 --tail 50
-docker logs manga-automation-python-worker-1 --tail 50
+python3 scripts/aitoearn_pipeline.py --once --category tech
+python3 scripts/aitoearn_pipeline.py --stage trend
+python3 scripts/aitoearn_pipeline.py --mode light
 ```
 
-### Rebuild Service:
+### Run CrewAI Pipeline:
 ```bash
-docker-compose build manga-agents
-docker-compose up -d manga-agents
+python3 scripts/crew/pipeline_crew.py --prompt "Post 5 viral tech clips" --count 5
+```
+
+### Run Engagement:
+```bash
+python3 scripts/engage/engine.py --platform tiktok --mode full
 ```
 
 ### Database Access:
@@ -230,53 +335,13 @@ docker-compose up -d manga-agents
 docker exec -it manga-automation-postgres-1 psql -U manga_user -d manga_automation
 ```
 
-### Test Endpoints:
-```powershell
-# Queue chapter
-Invoke-WebRequest -Uri "http://localhost:3001/webhook/queue-chapter" `
-  -Method POST -Headers @{"Content-Type"="application/json"} `
-  -Body '{"manga_id":11,"chapter_number":"79.1","priority":100}' `
-  -UseBasicParsing
-
-# Render video
-Invoke-WebRequest -Uri "http://localhost:3001/pipeline/render-video" `
-  -Method POST -Headers @{"Content-Type"="application/json"} `
-  -Body '{"queueId":1}' -UseBasicParsing
-
-# Generate caption
-Invoke-WebRequest -Uri "http://localhost:3001/captions/generate" `
-  -Method POST -Headers @{"Content-Type"="application/json"} `
-  -Body '{"videoId":35,"formulaType":"cliffhanger"}' `
-  -UseBasicParsing
-```
-
----
-
-## 📚 Documentation
-
-- [README.md](./README.md) - Project overview
-- [TECHNICAL_GUIDE.md](./TECHNICAL_GUIDE.md) - Technical details
-- [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) - Deployment instructions
-- [WEBHOOK_GUIDE.md](./WEBHOOK_GUIDE.md) - Webhook usage
-- [WORKFLOW_TEST_RESULTS.md](./WORKFLOW_TEST_RESULTS.md) - Test results
-- [SAAS_IMPLEMENTATION_PLAN.md](./SAAS_IMPLEMENTATION_PLAN.md) - Phase 2 plan
-
 ---
 
 ## 🎯 Next Actions
 
-1. **Review SaaS Implementation Plan** - Confirm scope and priorities
-2. **Set up Supabase** - Create project for authentication
-3. **Start Phase 2.1** - Multi-tenancy database schema
-4. **Incremental development** - Test each phase before moving on
-
----
-
-## 💡 Key Decisions Needed
-
-1. **Auth Provider**: Supabase Auth or Clerk?
-2. **Proxy Service**: Which provider to integrate?
-3. **Notification Service**: SendGrid, AWS SES, or other?
-4. **Deployment Strategy**: Keep Docker Compose or move to Kubernetes?
-5. **Monitoring**: Sentry, LogRocket, or custom?
+1. **Test full AiToEarn pipeline** — Run end-to-end with real trend data
+2. **Configure engagement browsers** — Set up Playwright profiles per platform
+3. **Seed marketplace tasks** — Add test merchants and promotion tasks
+4. **Dashboard engagement views** — Add engagement + monetization analytics panels
+5. **Monitor pipeline health** — Verify CrewAI fallback and error recovery
 

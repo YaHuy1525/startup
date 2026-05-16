@@ -6,13 +6,14 @@ Takes downloaded arbitrage assets and uploads to TikTok and/or YouTube Shorts.
 Usage:
     python3 scripts/distribute_arbitrage.py [--platforms tiktok youtube] [--batch 5]
 """
-import os, sys, json, time, argparse, requests
+import os, sys, json, time, argparse, requests, re
 from dotenv import load_dotenv
 load_dotenv()
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from scripts.utils import database as db
 from scripts.utils.logger import setup_logger
+from scripts.adapters import aitoearn_client
 
 logger = setup_logger("distribute_arbitrage")
 
@@ -21,28 +22,138 @@ MASTRA_API_URL = os.environ.get("MASTRA_API_URL", "http://localhost:3001")
 TIKTOK_UPLOADER_DIR = os.environ.get("TIKTOK_UPLOADER_DIR", r"D:\Code\startup\TiktokAutoUploader")
 MAX_UPLOAD_RETRIES = int(os.environ.get("ARBITRAGE_UPLOAD_RETRIES", "2"))
 RETRY_DELAY_SECONDS = int(os.environ.get("ARBITRAGE_UPLOAD_RETRY_DELAY_SECONDS", "8"))
+EDITORIAL_MODEL = os.environ.get("EDITORIAL_MODEL", "claude-sonnet-4-20250514")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+_raw_preserve = os.environ.get("CAPTION_PRESERVE_SERIES", "")
+CAPTION_PRESERVE_SERIES = [x.strip().lower() for x in _raw_preserve.split(",") if x.strip()]
+ARBITRAGE_AITOEARN_PRIMARY = os.environ.get("ARBITRAGE_AITOEARN_PRIMARY", "0").strip().lower() in {"1", "true", "yes"}
 
 
-def generate_caption(hashtag: str, title: str) -> tuple[str, list[str]]:
-    """Generate caption + hashtags using existing caption API."""
-    tag = hashtag.lstrip("#")
+def _looks_like_asset_filename(text: str) -> bool:
+    return bool(re.search(r"\basset[_\-\s]?\d+\b", (text or "").lower()))
+
+
+def _extract_title_hashtags(title: str) -> list[str]:
+    return [m.group(1) for m in re.finditer(r"#([A-Za-z0-9_]+)", title or "")]
+
+
+def _clean_title(title: str) -> str:
+    raw = (title or "").strip()
+    raw = re.sub(r"#([A-Za-z0-9_]+)", "", raw)
+    raw = re.sub(r"\s+", " ", raw).strip(" -|")
+    if not raw or _looks_like_asset_filename(raw):
+        return ""
+    return raw
+
+
+def _should_preserve_caption(clean_title: str) -> bool:
+    text = (clean_title or "").lower()
+    return any(key in text for key in CAPTION_PRESERVE_SERIES)
+
+
+def _build_fallback_caption(tag: str, title: str) -> str:
+    clean_title = _clean_title(title)
+    if clean_title:
+        return clean_title
+    return f"{tag} short clip".strip()
+
+
+def _normalize_hashtags(tag: str, hashtags: list) -> list[str]:
+    normalized = []
+    seen = set()
+    for raw in ([f"#{tag}"] + (hashtags or []) + ["#fyp", "#shorts", "#viral", "#trending"]):
+        cleaned = "#" + str(raw).lstrip("#").strip().lower()
+        cleaned = re.sub(r"[^#a-z0-9_]", "", cleaned)
+        if cleaned == "#" or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+        if len(normalized) >= 8:
+            break
+    return normalized
+
+
+def _ai_caption_from_source(tag: str, title: str, source_hashtags: list[str]) -> tuple[str, list[str]] | None:
+    if not ANTHROPIC_API_KEY:
+        return None
+    clean_title = _clean_title(title)
+    if not clean_title:
+        return None
+
+    preserve_mode = _should_preserve_caption(clean_title)
+    prompt = (
+        "You rewrite social captions for short-form video clips.\n"
+        "Return ONLY valid JSON with keys: caption (string), hashtags (array of strings without #).\n"
+        f"Source title: {clean_title}\n"
+        f"Topic tag: {tag}\n"
+        f"Source hashtags: {json.dumps(source_hashtags, ensure_ascii=False)}\n"
+        f"Preserve mode: {'true' if preserve_mode else 'false'}\n"
+        "Rules:\n"
+        "- If preserve mode is true: keep the caption close to source meaning/wording.\n"
+        "- If preserve mode is false: paraphrase the source title naturally.\n"
+        "- Never output filename-like text such as asset_123.\n"
+        "- Generate 4-8 hashtags by paraphrasing/expanding source hashtags + topic.\n"
+        "- Do not include # prefix in hashtags array."
+    )
+
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        msg = client.messages.create(
+            model=EDITORIAL_MODEL,
+            max_tokens=260,
+            temperature=0.3,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3].strip()
+        parsed = json.loads(raw)
+        caption = (parsed.get("caption") or "").strip()
+        hashtags = [str(x).strip() for x in (parsed.get("hashtags") or []) if str(x).strip()]
+        if not caption or _looks_like_asset_filename(caption):
+            return None
+        return caption, hashtags
+    except Exception as e:
+        logger.warning(f"AI caption generation failed; using fallback: {e}")
+        return None
+
+
+def generate_caption(hashtag: str, title: str, source_hashtags: list[str] | None = None) -> tuple[str, list[str]]:
+    """Generate caption + hashtags from source metadata, preferring AI rewrite."""
+    tag = hashtag.lstrip("#").strip().lower() or "viral"
+    source_hashtags = source_hashtags or []
+
+    ai_result = _ai_caption_from_source(tag, title, source_hashtags + _extract_title_hashtags(title))
+    if ai_result:
+        caption, ai_hashtags = ai_result
+        hashtags = _normalize_hashtags(tag, ai_hashtags + source_hashtags)
+        return caption, hashtags
+
     # Try the mastra caption API first
     try:
         r = requests.post(
             f"{MASTRA_API_URL}/captions/generate",
             json={"videoId": 0, "mangaTitle": tag, "chapterNumber": "1",
-                  "genre": "manga", "formulaType": "recommendation"},
+                  "genre": "general", "formulaType": "recommendation"},
             timeout=10,
         )
         if r.ok:
             data = r.json()
-            return data.get("caption", ""), data.get("hashtags", [])
+            caption = (data.get("caption") or "").strip()
+            hashtags = _normalize_hashtags(tag, data.get("hashtags", []))
+            if not caption or _looks_like_asset_filename(caption):
+                caption = _build_fallback_caption(tag, title)
+            return caption, hashtags
     except Exception:
         pass
 
     # Fallback: simple template
-    caption = f"You NEED to watch this {tag} content 🔥📚"
-    hashtags = [f"#{tag}", "#manga", "#anime", "#fyp", "#shorts"]
+    caption = _build_fallback_caption(tag, title)
+    hashtags = _normalize_hashtags(tag, [])
     return caption, hashtags
 
 
@@ -51,7 +162,7 @@ def upload_to_tiktok(asset: dict, caption: str, hashtags: list) -> dict:
     try:
         chapter = db.execute_one("SELECT id FROM manga_chapters LIMIT 1")
         if not chapter:
-            return {"success": False, "error": "No manga chapters in DB"}
+            return {"success": False, "error": "No chapter reference found in DB"}
 
         hashtag_arr = "{" + ",".join(h.lstrip("#") for h in hashtags) + "}"
         video_row = db.execute_one(
@@ -160,7 +271,7 @@ def _video_pin_from_asset(asset: dict, caption: str, hashtags: list) -> dict:
     Fallback Pinterest path when API auth is unavailable:
     create a queue item in DB (for external poster) and return queued state.
     """
-    pinterest_board = os.environ.get("PINTEREST_DEFAULT_BOARD", "manga-reading-guides")
+    pinterest_board = os.environ.get("PINTEREST_DEFAULT_BOARD", "content-highlights")
     landing_url = os.environ.get("PINTEREST_DEFAULT_LANDING_URL", "")
     db.execute(
         """
@@ -185,7 +296,11 @@ def upload_to_instagram(asset: dict, caption: str, hashtags: list) -> dict:
     Upload via Instagram Graph API if tokens are available, otherwise queue as pending.
     """
     ig_user_id = os.environ.get("INSTAGRAM_USER_ID")
-    ig_token = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
+    ig_token = (
+        (os.environ.get("META_API_KEY") or os.environ.get("META_ACCESS_TOKEN") or "").strip()
+        or (os.environ.get("INSTAGRAM_ACCESS_TOKEN") or "").strip()
+        or None
+    )
     if not ig_user_id or not ig_token:
         return {"success": True, "queued": True, "platform_url": None, "platform_post_id": None}
 
@@ -225,7 +340,11 @@ def upload_to_facebook(asset: dict, caption: str, hashtags: list) -> dict:
     Upload via Facebook Graph API if page credentials exist, otherwise queue as pending.
     """
     page_id = os.environ.get("FACEBOOK_PAGE_ID")
-    page_token = os.environ.get("FACEBOOK_PAGE_ACCESS_TOKEN")
+    page_token = (
+        (os.environ.get("META_API_KEY") or os.environ.get("META_ACCESS_TOKEN") or "").strip()
+        or (os.environ.get("FACEBOOK_PAGE_ACCESS_TOKEN") or "").strip()
+        or None
+    )
     if not page_id or not page_token:
         return {"success": True, "queued": True, "platform_url": None, "platform_post_id": None}
 
@@ -314,8 +433,35 @@ def process_pending(platforms: list = None, batch: int = 5) -> dict:
     failed = 0
 
     for asset in assets:
-        caption, hashtags = generate_caption(asset["hashtag"], asset.get("youtube_title", ""))
+        caption, hashtags = generate_caption(
+            asset["hashtag"],
+            asset.get("youtube_title", ""),
+            asset.get("source_hashtags") or [],
+        )
         asset_success = False
+
+        if ARBITRAGE_AITOEARN_PRIMARY and aitoearn_client.enabled():
+            remote_publish = aitoearn_client.run_stage(
+                "publish",
+                {
+                    "asset_id": asset["id"],
+                    "video_path": asset.get("local_path"),
+                    "caption": caption,
+                    "hashtags": hashtags,
+                    "channels": platforms,
+                    "idempotency_key": f"arb-asset-{asset['id']}",
+                },
+            )
+            if remote_publish.get("ok"):
+                asset_success = True
+                db.execute(
+                    "UPDATE arbitrage_assets SET status='distributed', updated_at=NOW() WHERE id=%s",
+                    (asset["id"],),
+                )
+                uploaded += 1
+                logger.info(f"Uploaded asset {asset['id']} via AiToEarn primary publish")
+                continue
+            logger.warning(f"AiToEarn publish failed for asset {asset['id']}; falling back local path")
 
         for platform in platforms:
             platform = platform.strip()

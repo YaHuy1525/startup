@@ -136,16 +136,16 @@ def main(region: str = "US", limit: int = 20) -> dict:
     raw = fetch_from_apify(region, limit)
 
     if not raw:
-        # Fallback: seed with known manga/anime trends for testing
-        logger.warning("No Apify data — using fallback manga trend seeds")
+        # Fallback: seed with generic cross-niche trends for testing
+        logger.warning("No Apify data — using fallback generic trend seeds")
         raw = [
-            {"hashtag": "manga",   "avgViews": 5000000, "postCount": 500000, "postCountChange": 10000, "avgEngagementRate": 0.05},
-            {"hashtag": "anime",   "avgViews": 8000000, "postCount": 900000, "postCountChange": 15000, "avgEngagementRate": 0.06},
-            {"hashtag": "manhwa",  "avgViews": 2000000, "postCount": 200000, "postCountChange": 8000,  "avgEngagementRate": 0.07},
-            {"hashtag": "manhua",  "avgViews": 1000000, "postCount": 100000, "postCountChange": 5000,  "avgEngagementRate": 0.06},
-            {"hashtag": "isekai",  "avgViews": 3000000, "postCount": 300000, "postCountChange": 12000, "avgEngagementRate": 0.08},
-            {"hashtag": "otaku",   "avgViews": 1500000, "postCount": 150000, "postCountChange": 6000,  "avgEngagementRate": 0.07},
-            {"hashtag": "webtoon", "avgViews": 2500000, "postCount": 250000, "postCountChange": 9000,  "avgEngagementRate": 0.07},
+            {"hashtag": "viralclips", "avgViews": 8000000, "postCount": 900000, "postCountChange": 15000, "avgEngagementRate": 0.06},
+            {"hashtag": "storytime",  "avgViews": 5000000, "postCount": 500000, "postCountChange": 10000, "avgEngagementRate": 0.05},
+            {"hashtag": "motivation", "avgViews": 3000000, "postCount": 300000, "postCountChange": 12000, "avgEngagementRate": 0.08},
+            {"hashtag": "lifehacks",  "avgViews": 2500000, "postCount": 250000, "postCountChange": 9000,  "avgEngagementRate": 0.07},
+            {"hashtag": "fitness",    "avgViews": 2000000, "postCount": 200000, "postCountChange": 8000,  "avgEngagementRate": 0.07},
+            {"hashtag": "cars",       "avgViews": 1500000, "postCount": 150000, "postCountChange": 6000,  "avgEngagementRate": 0.07},
+            {"hashtag": "tech",       "avgViews": 1000000, "postCount": 100000, "postCountChange": 5000,  "avgEngagementRate": 0.06},
         ]
 
     normalized = [n for item in raw if (n := normalize_item(item)) is not None]

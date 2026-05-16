@@ -1,0 +1,209 @@
+{
+  "main": {
+    "id": "b161a8046811677c",
+    "type": "split",
+    "children": [
+      {
+        "id": "ddd5413d1bcbce4e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "1ab4531f35b76ef9",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Templates/Person.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Person"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "bc725e4a33ea1aba",
+    "type": "split",
+    "children": [
+      {
+        "id": "0606b0be86cbe59e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "e5b541b70c1b0039",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "4bc0c2c13c472796",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "e7429ee7723956cd",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "d3aa11ff426fbe9e",
+    "type": "split",
+    "children": [
+      {
+        "id": "edf110bb9eea2840",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "2fbbb66c75e6b70f",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "28004603e340c3fe",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "0fbb439d127fdb62",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "b96619640f1426d2",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "8b109b779b71286d",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "1ab4531f35b76ef9",
+  "lastOpenFiles": [
+    "Knowledge/manga-automation-pipelines.md",
+    "Knowledge/manga-automation-architecture.md",
+    "Knowledge/manga-automation-agentic-upgrade.md",
+    "Boards/Personal.md",
+    "Daily/2026-05-12.md.tmp.10888.60f7a6b635a3",
+    "index.md.tmp.10888.81ce928e9864",
+    "index.md.tmp.10888.5af409da0812",
+    "Knowledge/manga-automation-saas-transformation.md",
+    "Knowledge/manga-automation-agentic-upgrade.md.tmp.10888.2fa029ae4c62",
+    "Knowledge/manga-automation-pipelines.md.tmp.10888.b03a237df224",
+    "Knowledge/manga-automation-architecture.md.tmp.10888.da1106ef44bb",
+    "Projects/manga-automation.md",
+    "Projects/manga-automation.md.tmp.10888.eaab7a392d9f",
+    "Boards/free-claude-code.md",
+    "Templates/Mention.md",
+    "Templates/Goal.md",
+    "Templates/Dev Log.md",
+    "Projects/free-claude-code.md",
+    "Mentions/Mentions Log.md",
+    "Content/Content Calendar.md",
+    "Daily/2026-05-12.md",
+    "Goals/2026 Goals.md",
+    "Health/Health Dashboard.md"
+  ]
+}

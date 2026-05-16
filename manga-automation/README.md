@@ -1,30 +1,45 @@
-# Manga TikTok Automation System
+# AiToEarn — AI-Powered Content Marketing Platform
 
-Fully automated pipeline that fetches trending manga from MangaDex, systematically posts all chapters in chronological order, generates professional vertical TikTok videos with Remotion effects, and publishes them with viral captions and strategic hashtags — all orchestrated by n8n.
+Autonomous 5-stage content arbitrage pipeline: **Trend → Create → Publish → Engage → Monetize**. Detects trending topics across 8 categories (tech, gaming, finance, fiction, anime, movies, art, TikTok trending) from TikTok, X/Twitter, YouTube, and Reddit; generates original and repurposed content with AI; publishes to 40+ platforms; auto-engages via browser automation; and matches creators with CPS/CPE/CPM marketplace tasks — orchestrated by CrewAI agents.
 
-**New Features:**
-- **Queue-based chapter posting** - Posts all manga chapters oldest-to-latest (90+ videos/day)
-- **Manual chapter selection** - Webhook endpoint for on-demand chapter queuing
-- **Enhanced video generation** - Remotion-powered videos with Ken Burns effects and smooth transitions
-- **Viral caption system** - 5 proven caption formulas with emoji integration
-- **Strategic hashtag selection** - Tiered hashtag system (mega/core/niche) for maximum reach
+**Pipeline Stages:**
+- **Trend Detection** — Cross-platform trend discovery across all categories with velocity scoring
+- **Content Creation** — AI-generated videos, captions, and scripts from trending topics
+- **Publishing** — Official AiToEarn API/MCP first, local multi-platform fallback (TikTok, YouTube Shorts, Instagram, Pinterest + 40 more)
+- **Engagement** — Browser-based auto-like, comment, follow, and comment mining
+- **Monetization** — CPS/CPE/CPM merchant task matching and settlement tracking
 
 ## Architecture
 
 ```
-n8n (every 4h)
+AiToEarn Pipeline (5 Stages)
   │
-  ├─► TrendDetector Agent  → manga table
-  ├─► /pipeline/populate-queue → chapter_posting_queue (all chapters)
-  ├─► /pipeline/render-video → Remotion videos with effects
-  ├─► /captions/generate → viral captions + strategic hashtags
-  └─► Python: upload_tiktok.py (Playwright) → TikTok
-
-n8n (every 6h)
-  └─► ShadowBanDetector Agent → pause banned accounts
-
-n8n (webhook)
-  └─► /webhook/queue-chapter → manual chapter selection
+  ├─► Stage 1: Trend Detection
+  │   ├─► fetch_tiktok_trends.py → trend_intel
+  │   ├─► fetch_twitter_trends.py → trend_intel
+  │   ├─► fetch_youtube_trends.py → trend_intel
+  │   ├─► fetch_reddit_trends.py → trend_intel + genesis_signals
+  │   └─► TrendDetector Agent (Mastra) → ranked cross-domain trends
+  │
+  ├─► Stage 2: Content Creation
+  │   ├─► trend_content_planner.py → content concepts
+  │   ├─► scriptwriter.ts / captionGenerator.ts → AI scripts
+  │   └─► generate_video.py / finance_video_generator.py → video assets
+  │
+  ├─► Stage 3: Publishing
+  │   ├─► upload_tiktok.py (Playwright + curl_cffi stealth)
+  │   ├─► upload_youtube.py / upload_instagram.py / upload_pinterest.py
+  │   └─► omnichannel_distributor.py → 40+ platforms
+  │
+  ├─► Stage 4: Engagement (Browser Automation)
+  │   ├─► scripts/engage/liker.py → auto-like
+  │   ├─► scripts/engage/commenter.py → AI smart replies
+  │   ├─► scripts/engage/follower.py → auto-follow
+  │   └─► scripts/engage/comment_miner.py → signal extraction
+  │
+  └─► Stage 5: Monetization
+      ├─► scripts/monetize/marketplace.py → merchant task matching
+      └─► scripts/monetize/settlement.py → CPS/CPE/CPM earnings
 ```
 
 ### Services
@@ -34,8 +49,10 @@ n8n (webhook)
 | PostgreSQL | 5434 | Primary database |
 | Redis | 6380 | API response cache |
 | manga-agents | 3001 | Mastra AI agents (Node 20) |
-| python-worker | 8080 | Python scripts (FFmpeg + Playwright) |
+| python-worker | 8080 | Python scripts (FFmpeg + Playwright + CrewAI) |
 | n8n | 5679 | Workflow orchestrator |
+| ChromaDB | 8001 | Vector memory for trend performance |
+| Dashboard | 3000 | React analytics + control panel |
 
 ## Quick Start
 
@@ -68,7 +85,7 @@ open http://localhost:5679              # admin / <N8N_PASSWORD>
 In the n8n UI (http://localhost:5679):
 1. Settings → Import from File
 2. Import workflow files from `n8n-workflows/` in order:
-   - `01_trend_detection.json` - Fetches trending manga and populates queue
+   - `01_trend_detection.json` - Fetches trending topics and populates queue
    - `02_video_generation.json` - Renders videos from queue with Remotion
    - `03_publisher.json` - Generates captions/hashtags and uploads to TikTok
    - `04_shadow_ban_monitor.json` - Monitors accounts for shadow bans
@@ -96,6 +113,11 @@ VALUES ('your_tiktok_username', 'active');
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
 | `DB_PASSWORD` | Yes | — | PostgreSQL password |
 | `ANTHROPIC_API_KEY` | Yes | — | Claude API key |
+| `AITOEARN_PRIMARY` | No | `false` | Enable official AiToEarn-first routing for Hermes + publish stage |
+| `AITOEARN_API_KEY` | Cond. | — | `x-api-key` used against official AiToEarn endpoints |
+| `AITOEARN_BASE_URL` | No | `https://aitoearn.ai` | Official AiToEarn environment base URL |
+| `AITOEARN_MCP_URL` | No | `https://aitoearn.ai/api/unified/mcp` | MCP endpoint reference (global) |
+| `AITOEARN_FALLBACK_LOCAL` | No | `true` | Allow local worker fallback when remote publish/stages fail |
 | `TIKTOK_EMAIL` | Yes | — | TikTok account email |
 | `TIKTOK_PASSWORD` | Yes | — | TikTok account password |
 | `N8N_PASSWORD` | Yes | — | n8n admin password |
@@ -125,7 +147,7 @@ VALUES ('your_tiktok_username', 'active');
 | `INSTAGRAM_ACCESS_TOKEN` | No | — | Instagram Graph API access token |
 | `FACEBOOK_PAGE_ID` | No | — | Facebook page id for Reels publishing |
 | `FACEBOOK_PAGE_ACCESS_TOKEN` | No | — | Facebook page access token |
-| `PINTEREST_DEFAULT_BOARD` | No | `manga-reading-guides` | Fallback queue board for Pinterest pins |
+| `PINTEREST_DEFAULT_BOARD` | No | `trending-content` | Fallback queue board for Pinterest pins |
 | `PINTEREST_DEFAULT_LANDING_URL` | No | empty | Landing URL attached to Pinterest queue entries |
 
 ## Telegram Bot Control
@@ -146,8 +168,8 @@ docker compose up -d --build python-worker telegram-bot
 ### Key Commands
 
 - `/status` - Worker + agent health and memory summary
-- `/fetch_trending 20` - Fetch trending manga
-- `/generate_video <chapter_id>` - Render a video
+- `/fetch_trending 20` - Fetch trending topics across categories
+- `/generate_video <id>` - Render a video
 - `/upload_tiktok <video_id>` - Upload to TikTok
 - `/arb_discover US 20` - Discover arbitrage trends
 - `/arb_download 10` - Download sourced assets
@@ -183,7 +205,7 @@ The stack can ingest trend research from the `last30days` skill and store struct
 2. Set:
 ```bash
 LAST30DAYS_COMMAND_TEMPLATE='last30days "{query}"'
-LAST30DAYS_DEFAULT_QUERIES='best anime comedy shorts||viral manga edits'
+LAST30DAYS_DEFAULT_QUERIES='viral tech innovations||trending gaming clips||finance market updates'
 ```
 3. Start the scheduler:
 ```bash
@@ -236,105 +258,109 @@ SUMMON_BACKEND=deerflow
 All scripts can be run standalone for testing:
 
 ```bash
-# Fetch trending manga and save to DB
-python3 -m scripts.fetch_trending_manga --limit 20
+# Run full AiToEarn pipeline
+python3 scripts/aitoearn_pipeline.py --once --category tech
 
-# Fetch latest chapter for manga with db id=1
-python3 -m scripts.fetch_chapter_images --manga-id 1
+# Run single stage
+python3 scripts/aitoearn_pipeline.py --stage trend --category gaming
 
-# Download panels for chapter id=5
-python3 -m scripts.download_panels --chapter-id 5
+# Fetch trends from all platforms
+python3 scripts/fetch_tiktok_trends_apify.py --region US --limit 20
+python3 scripts/fetch_twitter_trends.py --region US --limit 20
+python3 scripts/fetch_youtube_trends.py --region US --limit 20
+python3 scripts/fetch_reddit_trends.py --category-slug tech --limit 20
 
-# Check for duplicate panels
-python3 -m scripts.check_duplicates --chapter-id 5
-
-# Generate video from selected panels
-python3 -m scripts.generate_video --chapter-id 5
+# Generate video from trend
+python3 -m scripts.generate_video --trend-id 5
 
 # Upload video to TikTok
 python3 -m scripts.upload_tiktok --video-id 3
 
-# Detect shadow bans
-python3 -m scripts.detect_shadow_ban --min-posts 5 --threshold 0.10
+# Run engagement cycle
+python3 scripts/engage/engine.py --platform tiktok --mode full
+
+# Match creator with marketplace tasks
+python3 -m scripts.monetize.marketplace --creator-id 1
+
+# Run CrewAI autonomous pipeline
+python3 scripts/crew/pipeline_crew.py --prompt "Post 5 viral tech clips" --count 5
 ```
 
-## Mastra Agent Endpoints
+## AiToEarn Pipeline Endpoints (python-worker :8080)
 
-### Agent Endpoints
+### Full Pipeline
 ```
-POST /agents/detect-trends        Run trend detection
-POST /agents/select-panels        Body: { chapterId: N }
-POST /agents/generate-caption     Body: { videoId: N }
-POST /agents/optimize             Run content optimization
-POST /agents/detect-shadow-ban    Run shadow ban detection
+POST /aitoearn/pipeline            Body: { category?: "tech", mode?: "light"|"full" }
+                                   → Runs all 5 stages: Trend → Create → Publish → Engage → Monetize
 ```
 
-### Pipeline Endpoints
+### Individual Stages
 ```
-POST /pipeline/fetch-chapters     Fetch all active manga chapters
-POST /pipeline/populate-queue     Body: { manga_id: N } - Queue all chapters for a manga
-POST /pipeline/render-video       Body: { queueId: N, templateId?: N, randomTemplate?: boolean }
-GET  /pipeline/pending-chapters   Chapters not yet panel-selected
-GET  /pipeline/ready-videos       Videos ready to publish
-POST /pipeline/mark-published     Body: { videoId, platform, ... }
-GET  /pipeline/shadow-banned-accounts
+POST /aitoearn/stage/trend         Body: { category?: "tech", limit?: 10 }
+POST /aitoearn/stage/create        Body: { limit?: 5 }
+POST /aitoearn/stage/publish       Body: {}
+POST /aitoearn/stage/engage        Body: { platform?: "tiktok" }
+POST /aitoearn/stage/monetize      Body: { creator_id?: 1 }
 ```
 
-### Monetization Control Endpoints (python-worker)
+### CrewAI Agent Pipeline
 ```
-POST /monetization/kpi/evaluate   Body: { days?: 7, write_alerts?: true }
-POST /monetization/weekly-plan    Body: {}
-POST /monetization/snapshot       Body: { platform, metric_key, metric_value, source? }
-POST /monetization/should-post-ad Body: { platform, days?: 7 }
-POST /monetization/membership-cta Body: { slot_index?: 0 }
-POST /monetization/high-cpm-field Body: { week_seed?: number }
-POST /monetization/offer-matrix   Body: {}
+POST /api/summon-agent             Body: { prompt: "...", target_count?: 5, dry_run?: false }
+                                   → 7-agent autonomous pipeline (Scout → Harvester → Operator → Analyst → Engager → Monetizer)
+```
+
+### Arbitrage Pipeline (YouTube → TikTok/YouTube Shorts)
+```
+POST /arbitrage/discover-trends    Body: { region?: "US", limit?: 20 }
+POST /arbitrage/source-assets      Body: { limit?: 5 }
+POST /arbitrage/download           Body: { batch?: 10 }
+POST /arbitrage/distribute         Body: { platforms?: ["tiktok"], batch?: 5 }
+```
+
+### TikTok Uploader (option — Playwright + curl_cffi stealth)
+```
+POST /upload-tiktok                Body: { video_id: 1 }
+POST /upload-youtube               Body: { video_id: 1 }
+```
+
+### Trend-Driven Autopilot
+```
+POST /autopilot/plan-content       Body: { limit?: 10, repurpose_ratio?: 0.5 }
+POST /autopilot/execute-content-plan Body: { limit?: 10, repurpose_ratio?: 0.5, batch?: 3 }
+```
+
+### Legacy Manga Endpoints (deprecated — use AiToEarn pipeline instead)
+```
+POST /fetch-trending               Body: { limit: 20 }
+POST /generate-video               Body: { chapter_id: 1 }
+POST /detect-shadow-ban            Body: {}
+```
+
+### Monetization Control Endpoints
+```
+POST /monetization/kpi/evaluate    Body: { days?: 7, write_alerts?: true }
 POST /monetization/optimize-weekly Body: {}
 ```
 
-### Trend-Driven Autopilot Endpoints (python-worker)
-```
-POST /autopilot/plan-content
-Body: { limit?: 10, repurpose_ratio?: 0.5 }
--> returns ranked topics with mode:
-   - generate_original
-   - repurpose_youtube
+## AiToEarn-First Best Use Cases
 
-POST /autopilot/execute-content-plan
-Body: { limit?: 10, repurpose_ratio?: 0.5, batch?: 3 }
--> executes first N items:
-   - repurpose items queue YouTube assets
-   - original items return script/render queue payload
-```
+These are the highest-value operator flows when `AITOEARN_PRIMARY=true`:
 
-### Voiceover Endpoints (ElevenLabs + Kokoro local)
-```
-POST /voiceover/synthesize
-Body: {
-  text: string,
-  provider?: "elevenlabs" | "kokoro",
-  voice_id?: string,   // ElevenLabs voice id
-  model_id?: string,   // provider model id
-  output_path?: string
-}
-```
-If provider is `elevenlabs` and it fails, the service can optionally fallback
-to local Kokoro (`VOICE_ENABLE_FALLBACK=true`).
-
-### Queue Management Endpoints
-```
-POST /webhook/queue-chapter       Body: { manga_id, chapter_number, priority? }
-                                  OR { manga_id, start_chapter, end_chapter, priority? }
-                                  - Manually queue specific chapters or chapter ranges
-```
-
-### Caption & Hashtag Endpoints
-```
-POST /captions/generate           Body: { videoId, mangaTitle?, chapterNumber?, genre?, formulaType? }
-                                  - Generate viral caption with strategic hashtags
-GET  /hashtags/select             Query: ?mangaTitle=...&genre=...&emotionalTone=...&isRecommendation=...
-                                  - Get strategic hashtag combination (1 mega + 2-3 core + 1-2 niche)
-```
+1. **Daily Revenue Loop**
+   - Run once each morning to refresh trend/create/publish/engage/monetize in one pass.
+   - `POST /hermes/full-ops` body: `{"category":"finance","mode":"full","profile":"minimal"}`
+2. **Campaign Burst (time-boxed launch)**
+   - Re-run publish + engage with strict idempotency keys for a single campaign window.
+   - `POST /aitoearn/stage/publish` body: `{"profile":"full","idempotency_key":"campaign-2026-05-16"}`
+3. **Recovery / Replay**
+   - Keep local routes as fallback while AiToEarn remote is degraded.
+   - Set `AITOEARN_FALLBACK_LOCAL=true`; rerun `/hermes/full-ops` with same `run_id`.
+4. **Low-Risk Brand Protection**
+   - Use light engagement mode and diagnose-only Hermes cycles.
+   - `POST /hermes/full-ops` body: `{"mode":"light","engage_platform":"tiktok"}`
+5. **Dry-Run Validation Before Go-Live**
+   - Confirm endpoint wiring and key validity without triggering writes.
+   - `POST /hermes/full-ops` body: `{"dry_run":true}`
 
 ## Running Tests
 
@@ -344,98 +370,94 @@ pip install -r requirements.txt
 pytest tests/ -v
 ```
 
-## Queue System
+## AiToEarn Pipeline Usage
 
-The system now uses a database-backed queue to systematically post all manga chapters in chronological order, enabling 90+ videos per day.
-
-### How It Works
-
-1. **Queue Population**: When a manga is added, all chapters are queued oldest-to-latest
-2. **Priority Ordering**: Chapters are selected by priority (DESC) then chapter_number (ASC)
-3. **Status Tracking**: Each queue entry tracks status (pending/processing/posted/failed)
-4. **Automatic Progression**: System automatically moves to next manga when all chapters are posted
-
-### Manual Chapter Selection
-
-Queue specific chapters on-demand via webhook:
+### Run the Full Pipeline
 
 ```bash
-# Queue a single chapter with high priority
-curl -X POST http://localhost:3001/webhook/queue-chapter \
+# Full 5-stage pipeline (Trend → Create → Publish → Engage → Monetize)
+curl -X POST http://localhost:8080/aitoearn/pipeline \
   -H "Content-Type: application/json" \
-  -d '{"manga_id": 1, "chapter_number": "42", "priority": 100}'
+  -d '{"category": "tech", "mode": "full"}'
 
-# Queue a chapter range
-curl -X POST http://localhost:3001/webhook/queue-chapter \
+# Light mode (skips engagement)
+curl -X POST http://localhost:8080/aitoearn/pipeline \
   -H "Content-Type: application/json" \
-  -d '{"manga_id": 1, "start_chapter": "1", "end_chapter": "10", "priority": 100}'
+  -d '{"category": "gaming", "mode": "light"}'
 ```
 
-Response includes queue position and IDs:
-```json
-{
-  "success": true,
-  "queued_count": 1,
-  "queue_ids": [123],
-  "queue_position": 5
-}
+### Run Individual Stages
+
+```bash
+# Stage 1: Detect trends for a category
+curl -X POST http://localhost:8080/aitoearn/stage/trend \
+  -H "Content-Type: application/json" \
+  -d '{"category": "finance", "limit": 10}'
+
+# Stage 2: Create content from top trends
+curl -X POST http://localhost:8080/aitoearn/stage/create \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 5}'
+
+# Stage 3: Publish ready videos
+curl -X POST http://localhost:8080/aitoearn/stage/publish \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Stage 4: Run engagement cycle
+curl -X POST http://localhost:8080/aitoearn/stage/engage \
+  -H "Content-Type: application/json" \
+  -d '{"platform": "tiktok"}'
+
+# Stage 5: Monetization matching
+curl -X POST http://localhost:8080/aitoearn/stage/monetize \
+  -H "Content-Type: application/json" \
+  -d '{"creator_id": 1}'
 ```
 
-### Database Tables
+### TikTok Uploader (Option)
 
-**chapter_posting_queue** - Tracks which chapters to post and in what order
-- `id`, `manga_id`, `chapter_id`, `chapter_number`
-- `priority` (default: 0, manual: 100)
-- `status` (pending/processing/posted/failed)
-- `scheduled_for`, `posted_at`, `video_id`
-- `part_number`, `total_parts` (for split chapters)
+```bash
+# Use the Playwright + curl_cffi stealth TikTok uploader directly
+curl -X POST http://localhost:8080/upload-tiktok \
+  -H "Content-Type: application/json" \
+  -d '{"video_id": 1}'
+```
 
-**video_templates** - Predefined video styles and effects
-- `name`, `type`, `panel_duration`, `transition_type`
-- `effects_config` (JSON: zoom intensity, pan direction, etc.)
+### CrewAI Autonomous Pipeline
 
-**caption_templates** - Viral caption formulas
-- `formula_type` (emotional_hook/question/relatable/recommendation/statement_emoji)
-- `template` (e.g., "This scene from {manga} broke me {emoji}")
-- `emoji_suggestions`
+```bash
+# Full autonomous agent pipeline with natural language
+curl -X POST http://localhost:8080/api/summon-agent \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Post 5 viral tech clips today", "target_count": 5}'
 
-**hashtags** - Strategic hashtag database
-- `tag`, `tier` (1=mega, 2=core, 3=niche, 4=specific)
-- `category`, `views_estimate`
+# Dry run (plan only, no uploads)
+curl -X POST http://localhost:8080/api/summon-agent \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Find trending gaming content", "dry_run": true}'
+```
 
-## Video Generation
+### Content Creation Modes
 
-Videos are now generated using Remotion with professional effects:
-
-### Video Templates
-
-- **Emotional Scene** - Slow zoom with crossfade transitions (5s per panel)
-- **Character Edit** - Dynamic zoom with slide transitions (3s per panel)
-- **Manga Recommendation** - Moderate zoom with zoom transitions (4s per panel)
-- **Panel Appreciation** - Intense zoom for single panels (8s per panel)
-- **Fast Paced Action** - Quick cuts with wipe transitions (2s per panel)
-
-### Motion Types
-
-- `zoom_center` - Scale 1.0 → 1.25 (character reveals, close-ups)
-- `pan_right` - Horizontal drift (action scenes, wide panels)
-- `pan_up` - Vertical drift (establishing shots, tall scenes)
-- `pan_down` - Vertical drift reverse
+The pipeline supports two content creation paths:
+- **generate_original** — AI-generated scripts + video rendering (for original content)
+- **repurpose_youtube** — Source trending YouTube clips, download, and redistribute (arbitrage)
 
 ### Caption Formulas
 
-1. **Emotional Hook** - "This scene from {manga} broke me 💔"
-2. **Question** - "Who's your favorite character in {manga}? 🤔"
-3. **Relatable** - "POV: You just finished {manga} chapter {chapter} 😱"
-4. **Recommendation** - "You NEED to read {manga} 🔥📚"
-5. **Statement + Emoji** - "{manga} chapter {chapter} hits different 💯"
+1. **Emotional Hook** - "This {topic} moment changed everything 💔"
+2. **Question** - "What's your take on {trend}? 🤔"
+3. **Relatable** - "POV: When you discover {topic} for the first time 😱"
+4. **Recommendation** - "You NEED to check out {trend} 🔥"
+5. **Statement + Emoji** - "{category} is about to blow up 💯"
 
 ### Hashtag Strategy
 
 Each video gets 3-5 hashtags following the tiered system:
 - **1 mega hashtag** - #fyp or #foryou
-- **2-3 core hashtags** - #manga, #anime, #animetiktok
-- **1-2 niche hashtags** - Genre-specific (#shonen, #romance) or manga-specific
+- **2-3 core hashtags** - Category-specific (#tech, #gaming, #finance, #anime, etc.)
+- **1-2 niche hashtags** - Topic-specific based on trend analysis
 
 ## Running Tests
 
@@ -465,13 +487,33 @@ FROM tiktok_accounts
 WHERE shadow_banned = true;
 
 -- Top performing videos
-SELECT m.title, pv.platform_url, va.views, va.likes, va.comments
+SELECT v.title, pv.platform_url, va.views, va.likes, va.comments
 FROM video_analytics va
 JOIN published_videos pv ON va.published_video_id = pv.id
 JOIN videos v ON pv.video_id = v.id
-JOIN manga_chapters mc ON v.chapter_id = mc.id
-JOIN manga m ON mc.manga_id = m.id
 ORDER BY va.views DESC
+LIMIT 10;
+
+-- Top trending topics
+SELECT hashtag, confidence, trend_velocity, post_count, category_id
+FROM trend_intel
+WHERE status IN ('new', 'sourcing')
+ORDER BY confidence DESC, trend_velocity DESC
+LIMIT 20;
+
+-- Engagement run summary
+SELECT er.mode, er.platform, er.actions_taken, er.completed_at
+FROM engagement_runs er
+ORDER BY er.completed_at DESC
+LIMIT 10;
+
+-- Marketplace earnings
+SELECT m.name AS merchant, pt.title, e.amount, e.calculated_at
+FROM earnings e
+JOIN task_assignments ta ON e.assignment_id = ta.id
+JOIN promotion_tasks pt ON ta.task_id = pt.id
+JOIN merchants m ON pt.merchant_id = m.id
+ORDER BY e.calculated_at DESC
 LIMIT 10;
 ```
 
@@ -514,30 +556,51 @@ npm i kokoro-js
 
 ```
 manga-automation/
-├── database/schema.sql          PostgreSQL schema (all tables)
-├── scripts/                     Python automation layer
-│   ├── fetch_trending_manga.py  MangaDex + AniList trend fetch
-│   ├── fetch_chapter_images.py  Chapter panel URL scraping
-│   ├── download_panels.py       Image downloader
-│   ├── check_duplicates.py      SHA-256 dedup checker
-│   ├── generate_video.py        FFmpeg video builder
-│   ├── upload_tiktok.py         Playwright TikTok uploader
-│   ├── detect_shadow_ban.py     FYP% shadow ban detector
-│   ├── worker.py                HTTP wrapper for n8n calls
-│   └── utils/                   database.py, image_hash.py, logger.py
-├── mastra-agents/src/           TypeScript AI agents (Mastra + Claude)
+├── database/
+│   ├── schema.sql                 PostgreSQL schema (all tables)
+│   └── migrations/                Schema updates (013+ for AiToEarn)
+├── scripts/                       Python automation layer
+│   ├── aitoearn_pipeline.py       Master 5-stage pipeline orchestrator
+│   ├── fetch_tiktok_trends_apify.py TikTok trend fetcher
+│   ├── fetch_twitter_trends.py    X/Twitter trend fetcher
+│   ├── fetch_youtube_trends.py    YouTube trending fetcher
+│   ├── fetch_reddit_trends.py     Reddit hot posts fetcher
+│   ├── trend_content_planner.py   AI content planning from trends
+│   ├── generate_video.py          FFmpeg video builder
+│   ├── upload_tiktok.py           Playwright + curl_cffi TikTok uploader
+│   ├── upload_youtube.py          YouTube Shorts uploader
+│   ├── upload_instagram.py        Instagram Reels uploader
+│   ├── omnichannel_distributor.py 40+ platform distributor
+│   ├── platform_catalog.py        40+ platform definitions
+│   ├── engage/                    Browser automation engagement
+│   │   ├── engine.py              Orchestrator (light/medium/full modes)
+│   │   ├── commenter.py           AI smart comment replies
+│   │   ├── liker.py               Auto-like automation
+│   │   ├── follower.py            Auto-follow automation
+│   │   ├── comment_miner.py       Comment signal extraction
+│   │   └── browser.py             Playwright stealth browser
+│   ├── monetize/                  Marketplace monetization
+│   │   ├── marketplace.py         CPS/CPE/CPM task matching
+│   │   ├── settlement.py          Earnings tracking
+│   │   └── merchant_api.py        Merchant-facing API
+│   ├── crew/                      CrewAI agent orchestration
+│   │   ├── agents.py              7 AI agents (Scout→Harvester→Operator→Analyst→Engager→Monetizer)
+│   │   ├── pipeline_crew.py       7-task autonomous pipeline
+│   │   └── tools.py               Agent tool definitions
+│   └── utils/                     database.py, logger.py
+├── mastra-agents/src/             TypeScript AI agents (Mastra + Claude)
 │   ├── agents/
-│   │   ├── trendDetector.ts
-│   │   ├── panelSelector.ts     Claude Vision panel scoring
-│   │   ├── captionGenerator.ts  Viral caption generation
-│   │   ├── contentOptimizer.ts  Analytics-based optimization
-│   │   └── shadowBanDetector.ts Shadow ban analysis
-│   ├── tools/                   database.ts, mangadex.ts, scraper.ts
-│   └── server.ts                Express API server
-├── n8n-workflows/               4 workflow JSON files
-├── scripts-bash/                generate_manga_video.sh (FFmpeg)
-├── tests/                       pytest test suite
-├── docker-compose.yml           5-service Docker setup
-├── Dockerfile                   Node 20 multi-stage build
-└── Dockerfile.python            Python 3.11 + FFmpeg + Playwright
+│   │   ├── trendDetector.ts       Cross-domain trend detection (8 categories)
+│   │   ├── scriptwriter.ts        AI script generation
+│   │   ├── captionGenerator.ts    Viral caption generation
+│   │   ├── contentOptimizer.ts    Analytics-based optimization
+│   │   └── shadowBanDetector.ts   Shadow ban analysis
+│   ├── tools/                     database.ts, trendSources.ts, scraper.ts
+│   └── server.ts                  Express API server
+├── dashboard/                     React + Vite analytics dashboard
+├── n8n-workflows/                 Workflow definitions (fallback to CrewAI)
+├── tests/                         pytest test suite
+├── docker-compose.yml             8-service Docker setup
+├── Dockerfile                     Node 20 multi-stage build
+└── Dockerfile.python              Python 3.11 + FFmpeg + Playwright
 ```

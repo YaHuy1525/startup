@@ -134,17 +134,8 @@ def parse_iso_duration(duration: str) -> int:
 
 def build_search_query(hashtag: str) -> str:
     tag = hashtag.lstrip("#").lower()
-    query_map = {
-        "manga": "best manga recommendations 2025",
-        "anime": "best anime 2025 must watch",
-        "manhwa": "best manhwa to read 2025",
-        "manhua": "best manhua recommendations 2025",
-        "isekai": "best isekai manga anime 2025",
-        "otaku": "anime manga recommendations otaku 2025",
-    }
-    # If it's a known manga/anime tag, use the map. 
-    # Otherwise, just use the tag directly to avoid pollution (e.g. for Family Guy).
-    return query_map.get(tag, f"{tag} viral clips 2025")
+    # Keep querying generic so pipeline can work with any niche.
+    return f"{tag} viral clips 2025"
 
 
 def _pick_research_source(trend: dict) -> dict:
@@ -194,17 +185,7 @@ def queue_assets(trend_id: int, videos: list, selection: dict, research_run_id: 
                     (trend_id, youtube_url, youtube_title, youtube_views, duration_secs,
                      source_query, source_channel_id, source_hashtags, selection_reason, research_run_id)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (youtube_url) DO UPDATE SET
-                    trend_id = EXCLUDED.trend_id,
-                    youtube_title = EXCLUDED.youtube_title,
-                    youtube_views = EXCLUDED.youtube_views,
-                    duration_secs = COALESCE(EXCLUDED.duration_secs, arbitrage_assets.duration_secs),
-                    source_query = EXCLUDED.source_query,
-                    source_channel_id = EXCLUDED.source_channel_id,
-                    source_hashtags = EXCLUDED.source_hashtags,
-                    selection_reason = EXCLUDED.selection_reason,
-                    research_run_id = EXCLUDED.research_run_id,
-                    updated_at = NOW()
+                ON CONFLICT (youtube_url) DO NOTHING
                 RETURNING id
                 """,
                 (
