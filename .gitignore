@@ -127,5 +127,7 @@ free-claude-code-vault/.obsidian/
 /adaw.js
 /document.pdf
 
-# Upstream AiToEarn clone — secrets
-AiToEarn/.env
+# Nested repos / upstream clones (managed separately)
+/AiToEarn/
+/free-claude-code/
+/manga-automation/postiz-docker-compose/
