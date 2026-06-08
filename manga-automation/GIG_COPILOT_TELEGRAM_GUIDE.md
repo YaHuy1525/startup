@@ -535,6 +535,36 @@ Add this block after the "Agents + Advanced" section:
 
 ---
 
+## Scheduling agents (when things run automatically)
+
+You have **three** options; pick one per job (do not duplicate the same job in both n8n and `agent-scheduler`).
+
+| Method | Best for | Needs Docker 24/7? |
+|--------|----------|----------------------|
+| **n8n Schedule Trigger** | Daily at a fixed clock time (e.g. 21:00), existing manga pipelines | Yes — `n8n` + `python-worker` (+ `manga-agents` if the route calls Mastra) must be up at trigger time |
+| **`agent-scheduler` service** | Simple “every N hours” HTTP calls to worker routes | Yes — same stack while the interval fires; enable with `docker compose --profile schedulers up -d agent-scheduler` and set `AGENT_SCHEDULE_JOBS` in `.env` |
+| **Telegram only** | Manual `/gig_new`, `/summon`, `/hermes_order` | **No** scheduler — but `telegram-bot` must run whenever you want to send commands |
+
+**Gig daily KPI (21:00):** use `n8n-workflows/09_gig_daily_analytics.json` (already in repo) — activate in n8n UI.
+
+**Example `AGENT_SCHEDULE_JOBS` (Crew summon every 4h):**
+
+```env
+AGENT_SCHEDULE_JOBS=[{"name":"crew-trends","interval_seconds":14400,"path":"/api/summon-agent","body":{"prompt":"Find top trending short-form content","target_count":5}}]
+```
+
+Implementation: `scripts/agent_scheduler.py` (same pattern as `research_scheduler.py`).
+
+**Do you need the whole stack 24/7?**
+
+- **For scheduled runs:** whatever fires the schedule (n8n or `agent-scheduler`) plus **python-worker** must be running at trigger time. Routes that call Mastra agents also need **manga-agents** healthy.
+- **telegram-bot** is **not** required for scheduled jobs (only for chat commands).
+- **postgres** / **redis** must be up if the job touches the DB.
+- If the machine sleeps or Docker is stopped, **missed runs are not replayed** (interval scheduler runs on next tick after wake).
+- **Without 24/7 Docker:** use an external cron (GitHub Actions, cloud scheduler) to `curl` your public worker URL, or start the stack before you need automation.
+
+---
+
 ## Phase 6 — n8n Workflows (Week 1–2)
 
 Create these n8n workflow JSON files under `n8n-workflows/`. They follow the same pattern as your existing workflows.

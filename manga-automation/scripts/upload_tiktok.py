@@ -20,6 +20,8 @@ import json
 import time
 import argparse
 import os
+import io
+from contextlib import redirect_stdout, redirect_stderr
 
 # Ensure the root 'manga-automation' directory is in PYTHONPATH so 'scripts.utils' resolves properly
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -190,19 +192,45 @@ def do_tiktok_upload(video_path: str, caption_text: str, session_name: str, musi
         if music_id:
             logger.info(f"Using TikTok native sound id={music_id}")
         logger.info(f"Uploading via TiktokAutoUploader: session={session_name}, video={abs_video_path}")
-        result = upload_video(
-            session_user=session_name,
-            video=abs_video_path,
-            title=caption_text[:150],
-            music_id=music_id or None,
-        )
 
-        success = result is not False
-        logger.info(f"Upload result: {'success' if success else 'failed'}")
+        # TiktokAutoUploader can return truthy even when it only saved a Draft.
+        # Capture stdout/stderr and explicitly downgrade draft saves to failure.
+        captured = io.StringIO()
+        with redirect_stdout(captured), redirect_stderr(captured):
+            result = upload_video(
+                session_user=session_name,
+                video=abs_video_path,
+                title=caption_text[:150],
+                music_id=music_id or None,
+            )
+        output = captured.getvalue()
+        output_l = output.lower()
+
+        is_draft = "saved as draft successfully" in output_l
+        if not is_draft and isinstance(result, dict):
+            state = str(result.get("status") or result.get("state") or "").lower()
+            if "draft" in state:
+                is_draft = True
+        if not is_draft and isinstance(result, str) and "draft" in result.lower():
+            is_draft = True
+
+        success = (result is not False) and not is_draft
+        status = "draft" if is_draft else ("published" if success else "failed")
+        logger.info(f"Upload result: {status}")
         return {
             "success": success,
+            "status": status,
             "tiktok_url": None,
-            "error": None if success else "Upload returned False — check TikTok session cookies",
+            "error": (
+                None
+                if success
+                else (
+                    "tiktok_saved_as_draft_not_published"
+                    if is_draft
+                    else "Upload returned False — check TikTok session cookies"
+                )
+            ),
+            "raw_output_tail": output[-400:] if output else "",
         }
 
     except Exception as e:

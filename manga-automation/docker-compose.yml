@@ -210,6 +210,29 @@ services:
       postgres:
         condition: service_healthy
 
+  # ─── Scheduled agent / worker jobs (interval-based; cron → use n8n) ─────────
+  agent-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    restart: unless-stopped
+    profiles: [ schedulers ]
+    networks: [ manga-net ]
+    command: [ "python3", "-u", "scripts/agent_scheduler.py" ]
+    environment:
+      AGENT_SCHEDULER_WORKER_URL: http://python-worker:8080
+      AGENT_SCHEDULER_TICK_SECONDS: ${AGENT_SCHEDULER_TICK_SECONDS:-60}
+      AGENT_SCHEDULE_JOBS: ${AGENT_SCHEDULE_JOBS:-[]}
+      LOGS_DIR: /data/logs
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./data/logs:/data/logs
+    depends_on:
+      python-worker:
+        condition: service_started
+      manga-agents:
+        condition: service_healthy
+
   # ─── DeerFlow Hybrid Planning Layer (optional profile) ───────────────────────
   deerflow:
     image: ghcr.io/bytedance/deer-flow:main

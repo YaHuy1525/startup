@@ -49,6 +49,7 @@ for candidate in [x.strip().rstrip("/") for x in _worker_urls_raw.split(",") if 
     if candidate not in WORKER_URL_CANDIDATES:
         WORKER_URL_CANDIDATES.append(candidate)
 POLL_INTERVAL = int(os.getenv("TELEGRAM_POLL_INTERVAL", "2"))
+HERMES_PIPELINE_TIMEOUT = int(os.getenv("TELEGRAM_HERMES_TIMEOUT_SEC", "600"))
 TG_API_MAX_RETRIES = int(os.getenv("TELEGRAM_API_MAX_RETRIES", "3"))
 TG_API_RETRY_BASE_SEC = float(os.getenv("TELEGRAM_API_RETRY_BASE_SEC", "1.5"))
 REFERRAL_HUB_URL = os.getenv("REFERRAL_HUB_URL", "https://your-domain.com/links")
@@ -191,6 +192,9 @@ def _help_text() -> str:
         "/summon <prompt>\n"
         "/deerflow <prompt>\n"
         "/hermes_order <natural language order>\n"
+        "/aito_hermes <natural language posting order>\n"
+        "/aito_link_publish <video_or_channel_url> [platform_csv] [title|desc]\n"
+        "/hermes_logs [lines] - tail Hermes docker log file\n"
         "/mastra <METHOD> <path> [json]\n"
         "/worker <path> [json]\n\n"
         "AiToEarn Account Management:\n"
@@ -231,6 +235,10 @@ def _help_text() -> str:
         "/aito_post_all https://samplelib.com/lib/preview/mp4/sample-5s.mp4 tiktok,youtube,instagram Hermes fanout test | Posted from Telegram\n"
         "/aito_post_accounts https://samplelib.com/lib/preview/mp4/sample-5s.mp4 tiktok=tiktok_111|tiktok_222;youtube=youtube_999 My title | My desc\n"
         "/hermes_order i want to post this video on all my tiktok youtube instagram accounts https://samplelib.com/lib/preview/mp4/sample-5s.mp4\n"
+        "/aito_hermes i want to post this video on all of my platforms https://samplelib.com/lib/preview/mp4/sample-5s.mp4\n"
+        "/aito_hermes find and post a funny family guy vietnamese dub short on tiktok\n"
+        "/aito_link_publish https://www.youtube.com/channel/UC_x5XG1OV2P6uZZ5FSM9Ttw tiktok,youtube Fresh title | Fresh description\n"
+        "/hermes_logs 200\n"
         "/hermes_order i want to post this on tiktok and youtube, tiktok=tiktok_111|tiktok_222;youtube=youtube_999 https://samplelib.com/lib/preview/mp4/sample-5s.mp4\n"
         "/fetch_trending 25\n"
         "/summon Find top viral clips in my niche and create 3 posts\n"
@@ -262,8 +270,8 @@ def _as_float(parts: List[str], idx: int, default: float) -> float:
     return float(parts[idx])
 
 
-def _cmd_worker_route(path: str, body: Dict[str, Any]) -> str:
-    ok, data, base = _worker_post_json(path, body)
+def _cmd_worker_route(path: str, body: Dict[str, Any], timeout: int = 90) -> str:
+    ok, data, base = _worker_post_json(path, body, timeout=timeout)
     prefix = "Success" if ok else "Failed"
     return f"{prefix}: {path} via {base}\n{_safe_json(data)}"
 
@@ -360,6 +368,13 @@ def _parse_account_selection_map(raw: str) -> Dict[str, List[str]]:
         if ids:
             out[platform.strip().lower()] = ids
     return out
+
+
+def _clean_telegram_error_noise(text: str) -> str:
+    cleaned = (text or "").strip()
+    cleaned = re.sub(r"unknown\s+command:\s*/[a-z0-9_]+\s*use\s*/help\s+for\s+all\s+commands\\?", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
 
 
 def _send_video_file(chat_id: str, path: str, caption: str = "") -> Tuple[bool, str]:
@@ -768,6 +783,49 @@ def _cmd_aito_publish_status(parts: List[str]) -> str:
     return _cmd_worker_route("/aitoearn/publish/status", {"flow_id": parts[1].strip()})
 
 
+def _cmd_aito_link_publish(raw: str) -> str:
+    """
+    /aito_link_publish <video_or_channel_url> [platform_csv] [title|desc]
+    """
+    rest = raw.replace("/aito_link_publish", "", 1).strip()
+    if not rest:
+        return (
+            "Usage: /aito_link_publish <video_or_channel_url> [platform_csv] [title|desc]\n"
+            "Examples:\n"
+            "/aito_link_publish https://youtube.com/shorts/iW1jvdwUIHo tiktok,youtube Fast title | Fast desc\n"
+            "/aito_link_publish https://www.youtube.com/channel/UC_x5XG1OV2P6uZZ5FSM9Ttw tiktok,youtube"
+        )
+
+    chunks = rest.split(" ", 2)
+    source_url = chunks[0].strip()
+    known_platforms = {"tiktok", "youtube", "instagram", "facebook", "threads", "pinterest", "twitter", "douyin", "kwai", "bilibili"}
+    platforms: List[str] = []
+    tail = ""
+    if len(chunks) >= 2:
+        maybe_platforms = _parse_platform_csv(chunks[1])
+        if maybe_platforms and all(p in known_platforms for p in maybe_platforms):
+            platforms = maybe_platforms
+            tail = chunks[2].strip() if len(chunks) >= 3 else ""
+        else:
+            tail = " ".join(chunks[1:]).strip()
+
+    body: Dict[str, Any] = {
+        "source_url": source_url,
+        "channels": platforms or ["tiktok", "youtube", "instagram", "facebook", "threads", "pinterest"],
+        "objective": rest[:500],
+    }
+    if tail:
+        title, desc = _split_title_desc(tail)
+        body["title"] = title
+        body["desc"] = desc
+    return _cmd_worker_route("/hermes/link-publish", body, timeout=HERMES_PIPELINE_TIMEOUT)
+
+
+def _cmd_hermes_logs(parts: List[str]) -> str:
+    lines = _as_int(parts, 1, 120)
+    return _cmd_worker_route("/hermes/log-tail", {"lines": lines})
+
+
 def _cmd_hermes_order(raw: str) -> str:
     """
     Natural language orchestrator:
@@ -827,6 +885,16 @@ def _cmd_hermes_order(raw: str) -> str:
             body["selected_accounts"] = selected_map
         return _cmd_worker_route("/hermes/viral-pipeline", body)
 
+    if not video_url:
+        body = {
+            "profile": "minimal",
+            "channels": platforms or ["tiktok", "youtube", "instagram", "facebook", "threads", "pinterest"],
+            "objective": text,
+        }
+        if selected_map:
+            body["selected_accounts"] = selected_map
+        return _cmd_worker_route("/hermes/discover-publish", body, timeout=HERMES_PIPELINE_TIMEOUT)
+
     body = {
         "mode": "light",
         "profile": "minimal",
@@ -834,12 +902,46 @@ def _cmd_hermes_order(raw: str) -> str:
         "title": "Automated post",
         "desc": text[:400],
         "objective": text,
+        "video_url": video_url,
     }
-    if video_url:
-        body["video_url"] = video_url
     if selected_map:
         body["selected_accounts"] = selected_map
     return _cmd_worker_route("/hermes/full-ops", body)
+
+
+def _cmd_aito_hermes(raw: str) -> str:
+    """
+    AiToEarn-focused natural language posting command.
+    Example:
+      /aito_hermes i want to post this video on all of my platforms https://...
+    """
+    prompt = _clean_telegram_error_noise(raw.replace("/aito_hermes", "", 1).strip())
+    if not prompt:
+        return (
+            "Usage: /aito_hermes <natural language posting order>\n"
+            "Examples:\n"
+            "/aito_hermes i want to post this video on all of my platforms https://samplelib.com/lib/preview/mp4/sample-5s.mp4\n"
+            "/aito_hermes find and post a funny family guy vietnamese dub short on tiktok"
+        )
+
+    lower = prompt.lower()
+    platforms = _extract_platforms_from_text(lower)
+    wants_all_platforms = ("all platform" in lower) or ("all my platform" in lower) or ("all of my platform" in lower)
+    selected_map = _parse_account_selection_map(prompt) if "=" in prompt else {}
+    source_url = _extract_first_url(prompt)
+
+    body: Dict[str, Any] = {
+        "channels": ["tiktok", "youtube", "instagram", "facebook", "threads", "pinterest"]
+        if wants_all_platforms
+        else (platforms or ["tiktok", "youtube", "instagram", "facebook", "threads", "pinterest"]),
+        "objective": prompt,
+    }
+    if source_url:
+        body["source_url"] = source_url
+    if selected_map:
+        body["selected_accounts"] = selected_map
+    route = "/hermes/link-publish" if source_url else "/hermes/discover-publish"
+    return _cmd_worker_route(route, body, timeout=HERMES_PIPELINE_TIMEOUT)
 
 
 # ── Finance / Side-Hustle commands ──────────────────────────────────────────
@@ -1323,6 +1425,8 @@ def _dispatch_command(text: str, chat_id: str) -> str:
         return _cmd_summon(text)
     if cmd == "/hermes_order":
         return _cmd_hermes_order(text)
+    if cmd == "/aito_hermes":
+        return _cmd_aito_hermes(text)
     if cmd == "/worker":
         return _cmd_worker(text)
     if cmd == "/mastra":
@@ -1339,6 +1443,10 @@ def _dispatch_command(text: str, chat_id: str) -> str:
         return _cmd_aito_post_json(text)
     if cmd == "/aito_publish_status":
         return _cmd_aito_publish_status(parts)
+    if cmd == "/aito_link_publish":
+        return _cmd_aito_link_publish(text)
+    if cmd == "/hermes_logs":
+        return _cmd_hermes_logs(parts)
     # ── Gig Copilot ──────────────────────────────────────────────────────────
     if cmd == "/gig_new":
         return _cmd_gig_new(text, chat_id)

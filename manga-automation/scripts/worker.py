@@ -271,6 +271,133 @@ def _aitoearn_publish_restrictions(body: dict) -> dict:
     return aitoearn_client.get_publish_restrictions(platforms=platforms)
 
 
+def _resolve_clip_local_path(clip_id: int, source_type: str) -> dict:
+    """Resolve the on-disk video path for a stored clip."""
+    if source_type == "arbitrage":
+        row = db.execute_one(
+            "SELECT id, local_path, youtube_title FROM arbitrage_assets WHERE id = %s",
+            (clip_id,),
+        )
+        if not row:
+            return {"ok": False, "error": f"arbitrage_assets #{clip_id} not found"}
+        return {
+            "ok": True,
+            "local_path": row.get("local_path"),
+            "title": row.get("youtube_title"),
+        }
+    row = db.execute_one(
+        "SELECT id, file_path, caption FROM videos WHERE id = %s",
+        (clip_id,),
+    )
+    if not row:
+        return {"ok": False, "error": f"videos #{clip_id} not found"}
+    return {"ok": True, "local_path": row.get("file_path"), "title": row.get("caption")}
+
+
+def _publish_clip(body: dict) -> dict:
+    """
+    Manual publish of an already-downloaded clip to chosen AiToEarn accounts.
+
+    Body:
+      {
+        "clip_id": 87,
+        "source_type": "video" | "arbitrage",
+        "channels": ["tiktok","youtube","instagram"],
+        "selected_accounts": {"tiktok": ["tiktok_xxx"]},   # optional
+        "account_ids": ["tiktok_xxx"],                       # optional
+        "title": "...", "desc": "...", "caption": "...",
+        "hashtags": ["#a"], "topics": ["a"],
+        "cover_url": "...", "publish_time": "ISO8601",
+        "yt_privacy": "public" | "unlisted" | "private"
+      }
+    """
+    from scripts.adapters import media_host
+
+    clip_id = body.get("clip_id")
+    if clip_id is None:
+        return {"ok": False, "error": "clip_id is required"}
+    try:
+        clip_id = int(clip_id)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "clip_id must be an integer"}
+
+    source_type = str(body.get("source_type") or "video").strip().lower()
+    resolved = _resolve_clip_local_path(clip_id, source_type)
+    if not resolved.get("ok"):
+        return resolved
+
+    local_path = resolved.get("local_path")
+    hosted = media_host.ensure_public_url(
+        local_path,
+        fallback_public_url=(
+            body.get("video_url")
+            or body.get("videoUrl")
+            or body.get("source_url")
+            or body.get("sourceUrl")
+        ),
+    )
+    if not hosted.get("ok"):
+        return {
+            "ok": False,
+            "error": f"media_hosting_failed: {hosted.get('error')}",
+            "local_path": local_path,
+        }
+
+    publish_time = aitoearn_client.normalize_publish_time(
+        body.get("publish_time") or body.get("publishTime")
+    )
+    raw_time = body.get("publish_time") or body.get("publishTime")
+    if raw_time and not publish_time:
+        return {
+            "ok": False,
+            "error": f"invalid_publish_time: {raw_time!r} (use ISO-8601, e.g. 2026-06-03T08:00:00Z)",
+        }
+
+    publish_payload = {
+        "video_url": hosted["public_url"],
+        "channels": body.get("channels") or ["tiktok", "youtube", "instagram", "facebook", "threads", "pinterest"],
+        "selected_accounts": body.get("selected_accounts"),
+        "account_ids": body.get("account_ids"),
+        "title": body.get("title") or resolved.get("title") or "Automated post",
+        "desc": body.get("desc") or body.get("description") or body.get("caption") or "",
+        "caption": body.get("caption"),
+        "hashtags": body.get("hashtags"),
+        "topics": body.get("topics"),
+        "cover_url": body.get("cover_url") or body.get("coverUrl"),
+        "publishTime": publish_time,
+    }
+    if body.get("yt_privacy"):
+        os.environ["AITOEARN_YT_PRIVACY"] = str(body["yt_privacy"])
+
+    result = stage_publish(publish_payload)
+
+    # Record the schedule on the video row so the Content Calendar reflects it.
+    if publish_time and source_type == "video":
+        try:
+            db.execute(
+                "UPDATE videos SET scheduled_for = %s WHERE id = %s",
+                (publish_time, clip_id),
+            )
+        except Exception as exc:  # pragma: no cover - calendar sync is best-effort
+            logger.warning(f"Failed to persist scheduled_for for video {clip_id}: {exc}")
+
+    if isinstance(result, dict):
+        result.setdefault("ok", bool(result.get("success", True)))
+        result.setdefault(
+            "media",
+            {
+                "public_url": hosted["public_url"],
+                "uploaded": hosted.get("uploaded"),
+                "provider": hosted.get("provider"),
+            },
+        )
+        result.setdefault("clip_id", clip_id)
+        result.setdefault("source_type", source_type)
+        if publish_time:
+            result.setdefault("scheduled_for", publish_time)
+    return result
+
+
 def _run_agent_crew(body: dict) -> dict:
     """
     Dispatch the CrewAI pipeline in a background thread and return immediately
@@ -475,6 +602,27 @@ def _gig_finalize(body: dict) -> dict:
     }
 
 
+def _hermes_log_tail(body: dict) -> dict:
+    """
+    Return tail lines from Hermes log file inside docker-mounted logs dir.
+    """
+    lines = int(body.get("lines", 120))
+    lines = max(10, min(lines, 2000))
+    logs_dir = os.environ.get("LOGS_DIR", "/data/logs")
+    log_path = os.path.join(logs_dir, "hermes_agent.log")
+    if not os.path.exists(log_path):
+        return {"ok": False, "error": f"log_not_found:{log_path}"}
+    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+        data = f.readlines()
+    tail = data[-lines:]
+    return {
+        "ok": True,
+        "log_path": log_path,
+        "lines": len(tail),
+        "content": "".join(tail),
+    }
+
+
 ROUTES = {
     # ── AiToEarn Pipeline (primary) ───────────────────────────────────────────
     "/aitoearn/pipeline":       _aitoearn_pipeline,
@@ -488,6 +636,9 @@ ROUTES = {
     "/aitoearn/publish":        _aitoearn_publish,
     "/aitoearn/publish/status": _aitoearn_publish_status,
     "/aitoearn/publish/restrictions": _aitoearn_publish_restrictions,
+    # Manual publish of a stored clip (resolves local file -> public URL -> fanout)
+    # POST /publish/clip  { clip_id, source_type, channels?, selected_accounts?, ... }
+    "/publish/clip":            _publish_clip,
     # ── Legacy manga endpoints (deprecated — use AiToEarn pipeline) ──────────
     "/fetch-trending":    lambda body: fetch_trending.main(body.get("limit", 20)),
     "/fetch-chapter":     lambda body: fetch_chapter.main(body["manga_id"]),
@@ -509,7 +660,8 @@ ROUTES = {
         body.get("region", "US"), body.get("limit", 20)
     ),
     "/arbitrage/source-assets":   lambda body: asset_sourcer.main(
-        body.get("limit", 5)
+        body.get("limit", 5),
+        body.get("query_override"),
     ),
     "/arbitrage/download":        lambda body: arb_downloader.process_pending(
         body.get("batch", 10)
@@ -649,6 +801,7 @@ ROUTES = {
     "/hermes/diagnose": lambda body: hermes_agent.main({**body, "action": "diagnose"}),
     "/hermes/cycle": lambda body: hermes_agent.main({**body, "action": "cycle"}),
     "/hermes/full-ops": lambda body: hermes_agent.main({**body, "action": "full_ops"}),
+    "/hermes/log-tail": _hermes_log_tail,
     # ── Finance / Side-Hustle: Earnings Proof + Referral Registry ─────────────
     # POST /earnings/ingest  { action: "scan" | "weekly-recap" | "update-earnings" }
     # POST /earnings/list    { tier?: 1|2|3 }
@@ -673,6 +826,12 @@ ROUTES = {
     # POST /hermes/viral-pipeline { provider?, background?, profile? }
     # Full pipeline: discover trends → draft brief → generate video → distribute → Claude health-check
     "/hermes/viral-pipeline": lambda body: hermes_agent.run_viral_pipeline(body),
+    # POST /hermes/link-publish { source_url|link|video_url, channels?, selected_accounts?, account_ids? ... }
+    # Pipeline: source/download from provided link or channel -> publish fanout
+    "/hermes/link-publish": lambda body: hermes_agent.run_link_publish_pipeline(body),
+    # POST /hermes/discover-publish { objective, channels?, ... }
+    # Pipeline: discover matching YouTube short from objective -> verify -> publish fanout
+    "/hermes/discover-publish": lambda body: hermes_agent.run_discover_publish_pipeline(body),
 }
 
 
@@ -682,11 +841,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def send_json(self, code: int, data):
         body = json.dumps(data, ensure_ascii=False, default=str).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError) as exc:
+            # Client (e.g. telegram-bot) may disconnect on long pipelines before the body is read.
+            logger.warning(f"Client disconnected before response was delivered: {exc}")
 
     def do_GET(self):
         if self.path == "/health":
@@ -719,6 +882,13 @@ class Handler(BaseHTTPRequestHandler):
                             envelope_ok = False
                 elif self.path in ("/upload-tiktok", "/upload-youtube"):
                     envelope_ok = result.get("success") is True
+                elif self.path == "/publish/clip":
+                    envelope_ok = (
+                        result.get("ok") is not False
+                        and result.get("success") is not False
+                    )
+                elif self.path.startswith("/hermes/"):
+                    envelope_ok = result.get("success") is not False
                 elif self.path == "/arbitrage/distribute":
                     proc = result.get("processed") or 0
                     up = result.get("uploaded") or 0

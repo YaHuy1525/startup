@@ -77,6 +77,8 @@ Thumbs.db
 *.sw?
 /.cursor
 /.kiro
+/.claude/
+**/.claude/settings.local.json
 
 # ==============================================================================
 # Logs & General
@@ -111,6 +113,19 @@ manga-automation/data/redis/
 manga-automation/data/postgres/
 manga-automation/data/obsidian-vault/
 manga-automation/data/music/
+manga-automation/graphify-out/
+
+# Obsidian vault — local UI/workspace state (notes remain tracked)
+free-claude-code-vault/.obsidian/
+
+# Secrets & credentials
+**/client_secret*.json
+**/credentials.json
+*.pem
+
+# Scratch / accidental root files
+/adaw.js
+/document.pdf
 
 # Upstream AiToEarn clone — secrets
 AiToEarn/.env

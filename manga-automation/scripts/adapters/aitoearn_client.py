@@ -15,6 +15,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -26,6 +27,42 @@ load_dotenv()
 def _bool_env(name: str, default: bool = False) -> bool:
     raw = str(os.environ.get(name, "1" if default else "0")).strip().lower()
     return raw in {"1", "true", "yes", "on"}
+
+
+def normalize_publish_time(value: Any) -> str | None:
+    """
+    Coerce a schedule time into the exact format AiToEarn requires:
+    a UTC ISO-8601 timestamp ending in 'Z' (e.g. 2026-06-03T08:00:00Z).
+
+    Accepts ISO strings (with/without 'Z' or offset) and epoch seconds/ms.
+    Returns None when empty or unparseable (caller should then publish now).
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+
+    # Epoch seconds or milliseconds.
+    try:
+        if re.fullmatch(r"\d+(\.\d+)?", s):
+            num = float(s)
+            if num > 1e12:  # milliseconds
+                num /= 1000.0
+            dt = datetime.fromtimestamp(num, tz=timezone.utc)
+            return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, OverflowError, OSError):
+        pass
+
+    # ISO-8601 (datetime.fromisoformat understands offsets; map trailing Z first).
+    try:
+        iso = s[:-1] + "+00:00" if s.endswith("Z") else s
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return None
 
 
 def _json_env(name: str, default: dict[str, str]) -> dict[str, str]:
@@ -43,6 +80,16 @@ def _json_env(name: str, default: dict[str, str]) -> dict[str, str]:
 
 def _join_url(base: str, path: str) -> str:
     return f"{base.rstrip('/')}/{path.lstrip('/')}"
+
+
+def _walk(obj: Any):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield k, v
+            yield from _walk(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            yield from _walk(item)
 
 
 @dataclass(frozen=True)
@@ -288,6 +335,13 @@ class AiToEarnClient:
                 return m.group(1).strip()
         return ""
 
+    def _extract_flow_id_from_result(self, result: Any) -> str:
+        keys = {"flowid", "flow_id", "publishtaskid", "taskid"}
+        for key, value in _walk(result):
+            if str(key).replace("-", "").replace("_", "").lower() in keys and isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
     def _parse_status_text(self, text: str) -> dict[str, Any]:
         status_raw = ""
         error_msg = ""
@@ -320,8 +374,12 @@ class AiToEarnClient:
         video_url = self._extract_video_url(payload)
         cover_url = str(payload.get("cover_url") or payload.get("coverUrl") or "").strip()
         topics = self._extract_topics(payload)
+        if platform == "tiktok" and topics:
+            topics = topics[:5]
         img_urls = self._extract_img_urls(payload)
-        publish_time = payload.get("publishTime") or payload.get("publish_time")
+        publish_time = normalize_publish_time(
+            payload.get("publishTime") or payload.get("publish_time")
+        )
 
         args: dict[str, Any] = {
             "accountId": account_id,
@@ -329,7 +387,7 @@ class AiToEarnClient:
             "desc": desc,
         }
         if publish_time:
-            args["publishTime"] = str(publish_time)
+            args["publishTime"] = publish_time
         if topics:
             args["topics"] = topics
         if cover_url:
@@ -338,8 +396,11 @@ class AiToEarnClient:
             args["videoUrl"] = video_url
         if img_urls:
             args["imgUrlList"] = img_urls
-        if payload.get("idempotency_key"):
-            args["userTaskId"] = str(payload["idempotency_key"])
+        # AiToEarn may reject arbitrary userTaskId formats with "Validation failed".
+        # Only pass explicit user_task_id when caller provides one intentionally.
+        explicit_user_task_id = payload.get("user_task_id") or payload.get("userTaskId")
+        if explicit_user_task_id:
+            args["userTaskId"] = str(explicit_user_task_id)
 
         if platform in {"youtube", "youtube_shorts"}:
             args["option"] = {
@@ -347,6 +408,15 @@ class AiToEarnClient:
                 "license": os.environ.get("AITOEARN_YT_LICENSE", "youtube"),
                 "categoryId": os.environ.get("AITOEARN_YT_CATEGORY_ID", "22"),
             }
+        if platform == "pinterest":
+            board_id = (
+                payload.get("board_id")
+                or payload.get("boardId")
+                or payload.get("pinterest_board_id")
+                or os.environ.get("AITOEARN_PINTEREST_BOARD_ID", "").strip()
+            )
+            if board_id:
+                args["boardId"] = str(board_id)
         return args
 
     def _run_publish_fanout(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -417,6 +487,7 @@ class AiToEarnClient:
         channel_stats: dict[str, dict[str, int]] = {}
         poll_attempts = int(os.environ.get("AITOEARN_PUBLISH_STATUS_POLL_ATTEMPTS", "4"))
         poll_sleep_sec = float(os.environ.get("AITOEARN_PUBLISH_STATUS_POLL_SEC", "3"))
+        unverified_as_failure = _bool_env("AITOEARN_UNVERIFIED_AS_FAILURE", default=False)
 
         for acc in accounts:
             platform = self._normalize_platform(acc.get("type", ""))
@@ -463,10 +534,26 @@ class AiToEarnClient:
                 channel_stats.setdefault(platform, {"success": 0, "failed": 0})["failed"] += 1
                 continue
 
-            call_text = self._mcp_result_text(call.get("result", {}))
-            flow_id = self._extract_flow_id(call_text)
+            call_result = call.get("result", {})
+            call_text = self._mcp_result_text(call_result)
+            if isinstance(call_result, dict) and call_result.get("isError"):
+                results.append(
+                    {
+                        "platform": platform,
+                        "account_id": account_id,
+                        "account": acc.get("account"),
+                        "success": False,
+                        "error": call_text or "tool_reported_error",
+                        "verification": "tool_error",
+                        "tool": tool_name,
+                    }
+                )
+                channel_stats.setdefault(platform, {"success": 0, "failed": 0})["failed"] += 1
+                continue
+            flow_id = self._extract_flow_id(call_text) or self._extract_flow_id_from_result(call_result)
             status_payload: dict[str, Any] | None = None
             status_ok = True
+            verification = "accepted_unverified"
 
             if flow_id:
                 for _ in range(max(1, poll_attempts)):
@@ -474,19 +561,27 @@ class AiToEarnClient:
                     if not status_call.get("ok"):
                         status_ok = False
                         status_payload = {"error": status_call.get("error", "status_call_failed")}
+                        verification = "status_error"
                         break
                     status_text = self._mcp_result_text(status_call.get("result", {}))
                     parsed = self._parse_status_text(status_text)
                     status_payload = parsed
                     if parsed.get("error_msg"):
                         status_ok = False
+                        verification = "status_error"
                         break
                     if self._status_success(parsed):
                         status_ok = True
+                        verification = "status_confirmed"
                         break
                     time.sleep(max(0.5, poll_sleep_sec))
+                if verification == "accepted_unverified":
+                    verification = "status_pending_or_unknown"
 
             success = status_ok
+            if not flow_id and unverified_as_failure:
+                success = False
+                verification = "unverified_treated_as_failure"
             results.append(
                 {
                     "platform": platform,
@@ -495,6 +590,7 @@ class AiToEarnClient:
                     "success": success,
                     "flow_id": flow_id,
                     "status": status_payload,
+                    "verification": verification,
                     "tool": tool_name,
                 }
             )
@@ -513,12 +609,16 @@ class AiToEarnClient:
 
         published_count = sum(1 for row in results if row.get("success"))
         failed_count = sum(1 for row in results if not row.get("success"))
+        confirmed_count = sum(1 for row in results if row.get("verification") == "status_confirmed")
+        unverified_count = sum(1 for row in results if row.get("verification") in {"accepted_unverified", "status_pending_or_unknown"})
         return {
             "ok": True,
             "status_code": 200,
             "result": {
                 "published_count": published_count,
                 "failed_count": failed_count,
+                "confirmed_count": confirmed_count,
+                "unverified_count": unverified_count,
                 "ready_count": len(results),
                 "uploader": "aitoearn_mcp_fanout",
                 "path": "mcp_primary",

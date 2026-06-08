@@ -1,15 +1,16 @@
 import { Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Library, Share2, Settings, Workflow, Users, Calendar, Activity, TrendingUp } from 'lucide-react';
-import MangaManager from './pages/MangaManager';
+import { LayoutDashboard, Share2, Settings, Workflow, Users, Calendar, Activity, TrendingUp, Film, Send, Bot } from 'lucide-react';
 import PublisherDashboard from './pages/PublisherDashboard';
 import Workflows from './pages/Workflows';
 import TikTokAccounts from './pages/TikTokAccounts';
 import ContentCalendar from './pages/ContentCalendar';
 import Analytics from './pages/Analytics';
 import Arbitrage from './pages/Arbitrage';
+import ClipLibrary from './pages/ClipLibrary';
+import AgentConsole from './pages/AgentConsole';
+import PipelineManager from './pages/PipelineManager';
 import { useEffect, useState } from 'react';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { API_BASE } from './config';
 
 function App() {
   return (
@@ -25,9 +26,17 @@ function App() {
             <LayoutDashboard size={20} />
             Overview
           </NavLink>
-          <NavLink to="/manga" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <Library size={20} />
-            Manga Series
+          <NavLink to="/clips" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Film size={20} />
+            Clip Library
+          </NavLink>
+          <NavLink to="/agent" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Bot size={20} />
+            Agent Console
+          </NavLink>
+          <NavLink to="/pipelines" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Send size={20} />
+            Pipelines
           </NavLink>
           <NavLink to="/publisher" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Share2 size={20} />
@@ -63,7 +72,9 @@ function App() {
       <main className="main-content">
         <Routes>
           <Route path="/" element={<Overview />} />
-          <Route path="/manga" element={<MangaManager />} />
+          <Route path="/clips" element={<ClipLibrary />} />
+          <Route path="/agent" element={<AgentConsole />} />
+          <Route path="/pipelines" element={<PipelineManager />} />
           <Route path="/publisher" element={<PublisherDashboard />} />
           <Route path="/workflows" element={<Workflows />} />
           <Route path="/accounts" element={<TikTokAccounts />} />
@@ -79,7 +90,6 @@ function App() {
 
 function Overview() {
   const [stats, setStats] = useState({
-    totalManga: 0,
     videosRendered: 0,
     activeAccounts: 0,
     loading: true
@@ -88,18 +98,15 @@ function Overview() {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const [mangaRes, videosRes, accountsRes] = await Promise.all([
-          fetch(`${API_URL}/dashboard/manga`),
-          fetch(`${API_URL}/dashboard/videos`),
-          fetch(`${API_URL}/dashboard/tiktok-accounts`)
+        const [videosRes, accountsRes] = await Promise.all([
+          fetch(`${API_BASE}/dashboard/videos`),
+          fetch(`${API_BASE}/dashboard/tiktok-accounts`)
         ]);
 
-        const manga = await mangaRes.json();
         const videos = await videosRes.json();
         const accounts = await accountsRes.json();
 
         setStats({
-          totalManga: manga.manga?.length || 0,
           videosRendered: videos.videos?.length || 0,
           activeAccounts: accounts.accounts?.filter((a: any) => a.account_status === 'active').length || 0,
           loading: false
@@ -128,10 +135,6 @@ function Overview() {
         <h2 className="page-title">Dashboard Overview</h2>
       </div>
       <div className="stats-grid">
-        <div className="glass stat-card">
-          <div className="stat-title">Total Manga</div>
-          <div className="stat-value">{stats.totalManga}</div>
-        </div>
         <div className="glass stat-card">
           <div className="stat-title">Videos Rendered</div>
           <div className="stat-value">{stats.videosRendered}</div>

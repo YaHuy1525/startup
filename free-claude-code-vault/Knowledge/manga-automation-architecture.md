@@ -78,12 +78,12 @@ Migration files: `database/migrations/` — incremental schema changes.
 
 AI agents in `mastra-agents/src/agents/`:
 
-| Agent | Purpose |
-|---|---|
-| Trend Agent | Detects trending manga from TikTok/Reddit signals |
-| Panel Agent | Selects best panels from chapters for video composition |
+| Agent         | Purpose                                                                 |
+| ------------- | ----------------------------------------------------------------------- |
+| Trend Agent   | Detects trending manga from TikTok/Reddit signals                       |
+| Panel Agent   | Selects best panels from chapters for video composition                 |
 | Caption Agent | Generates viral captions (5 formula types: cliffhanger, question, etc.) |
-| Hashtag Agent | Selects tiered hashtags based on content type and genre |
+| Hashtag Agent | Selects tiered hashtags based on content type and genre                 |
 
 Tools in `mastra-agents/src/tools/`:
 - `database.ts` — PostgreSQL queries

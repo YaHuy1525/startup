@@ -1,6 +1,7 @@
 venv/
 *.pyc
 __pycache__/
+graphify-out/
 .env
 data/panels/
 data/videos/

@@ -7,6 +7,7 @@ Uses YouTube Data API v3 directly (key already in .env).
 """
 import os, sys, json, argparse, requests
 import re
+from typing import Any
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -173,6 +174,59 @@ def _pick_research_source(trend: dict) -> dict:
         "query": build_search_query(trend["hashtag"]),
         "selection_reason": "fallback_trend_hashtag",
     }
+
+
+def discover_short_videos(
+    query: str,
+    *,
+    channel_id: str | None = None,
+    max_results: int = 10,
+) -> list[dict[str, Any]]:
+    """
+    Search YouTube for short-form candidates and return normalized metadata for ranking.
+    """
+    query = (query or "").strip()
+    if not query and not channel_id:
+        return []
+
+    if channel_id:
+        raw = search_youtube_channel(channel_id, max_results=max_results + 5)
+    else:
+        raw = search_youtube(query, max_results=max_results + 5)
+
+    if not raw:
+        return []
+
+    video_ids = [item["id"]["videoId"] for item in raw if item.get("id", {}).get("videoId")]
+    details = get_video_details(video_ids)
+
+    candidates: list[dict[str, Any]] = []
+    for item in raw:
+        vid_id = (item.get("id") or {}).get("videoId")
+        if not vid_id:
+            continue
+        info = details.get(vid_id, {})
+        duration = info.get("duration_secs", 0)
+        if duration > MAX_DURATION_SECS and duration != 0:
+            continue
+        snippet = item.get("snippet") or {}
+        candidates.append(
+            {
+                "video_id": vid_id,
+                "url": f"https://www.youtube.com/watch?v={vid_id}",
+                "title": str(snippet.get("title") or "")[:500],
+                "description": str(snippet.get("description") or "")[:2000],
+                "channel_title": str(snippet.get("channelTitle") or "")[:200],
+                "published_at": snippet.get("publishedAt"),
+                "views": int(info.get("views") or 0),
+                "duration_secs": duration or None,
+                "source_query": query or channel_id,
+                "source_channel_id": channel_id,
+            }
+        )
+        if len(candidates) >= max_results:
+            break
+    return candidates
 
 
 def queue_assets(trend_id: int, videos: list, selection: dict, research_run_id: int | None = None) -> int:

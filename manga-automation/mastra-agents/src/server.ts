@@ -577,6 +577,106 @@ app.post('/dashboard/manga', async (req: Request, res: Response) => {
     }
 });
 
+/** GET /dashboard/clips
+ * Unified clip library: rendered/ingested `videos` + YouTube-sourced `arbitrage_assets`,
+ * each with its publish history. Optional filters: ?source=video|arbitrage, ?status=...
+ */
+app.get('/dashboard/clips', async (req: Request, res: Response) => {
+    const { source, status } = req.query as { source?: string; status?: string };
+    try {
+        const result = await db.query(`
+            SELECT * FROM (
+                SELECT
+                    v.id,
+                    'video' AS source_type,
+                    COALESCE(NULLIF(v.caption, ''), 'Video #' || v.id) AS title,
+                    v.file_path AS local_path,
+                    v.thumbnail_path,
+                    v.duration_secs::numeric AS duration_secs,
+                    v.file_size_mb,
+                    v.status,
+                    NULL::text AS source_url,
+                    v.created_at,
+                    COALESCE((
+                        SELECT json_agg(json_build_object(
+                            'platform', pv.platform, 'url', pv.platform_url, 'published_at', pv.published_at
+                        ))
+                        FROM published_videos pv WHERE pv.video_id = v.id
+                    ), '[]'::json) AS published
+                FROM videos v
+                UNION ALL
+                SELECT
+                    a.id,
+                    'arbitrage' AS source_type,
+                    COALESCE(NULLIF(a.youtube_title, ''), 'Clip #' || a.id) AS title,
+                    a.local_path,
+                    NULL::text AS thumbnail_path,
+                    a.duration_secs::numeric AS duration_secs,
+                    a.file_size_mb,
+                    a.status,
+                    a.youtube_url AS source_url,
+                    a.created_at,
+                    COALESCE((
+                        SELECT json_agg(json_build_object(
+                            'platform', au.platform, 'url', au.platform_url, 'status', au.status
+                        ))
+                        FROM arbitrage_uploads au WHERE au.asset_id = a.id
+                    ), '[]'::json) AS published
+                FROM arbitrage_assets a
+            ) clips
+            WHERE ($1::text IS NULL OR clips.source_type = $1)
+              AND ($2::text IS NULL OR clips.status = $2)
+            ORDER BY clips.created_at DESC NULLS LAST
+            LIMIT 300
+        `, [source || null, status || null]);
+        res.json({ clips: result.rows });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** GET /dashboard/clips/:id?source=video|arbitrage
+ * Single clip detail with full publish history (ids overlap across tables, so `source` is required).
+ */
+app.get('/dashboard/clips/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const source = (req.query.source as string) || 'video';
+    try {
+        if (source === 'arbitrage') {
+            const asset = await db.query(
+                `SELECT a.*, t.hashtag FROM arbitrage_assets a
+                 LEFT JOIN trend_intel t ON a.trend_id = t.id
+                 WHERE a.id = $1`,
+                [id]
+            );
+            if (!asset.rows.length) return res.status(404).json({ error: 'clip not found' });
+            const uploads = await db.query(
+                `SELECT platform, caption, platform_url, platform_post_id, status, error_message, uploaded_at
+                 FROM arbitrage_uploads WHERE asset_id = $1 ORDER BY uploaded_at DESC`,
+                [id]
+            );
+            return res.json({ clip: { ...asset.rows[0], source_type: 'arbitrage' }, uploads: uploads.rows });
+        }
+        const video = await db.query(`SELECT * FROM videos WHERE id = $1`, [id]);
+        if (!video.rows.length) return res.status(404).json({ error: 'clip not found' });
+        const [published, attempts] = await Promise.all([
+            db.query(
+                `SELECT platform, account_name, platform_url, platform_post_id, status, published_at
+                 FROM published_videos WHERE video_id = $1 ORDER BY published_at DESC`,
+                [id]
+            ),
+            db.query(
+                `SELECT platform, success, error_message, tiktok_url, uploaded_at
+                 FROM upload_results WHERE video_id = $1 ORDER BY uploaded_at DESC`,
+                [id]
+            ),
+        ]);
+        res.json({ clip: { ...video.rows[0], source_type: 'video' }, published: published.rows, attempts: attempts.rows });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 /** POST /pipeline/populate-queue
  * Queue all chapters for a manga
  * Body: { manga_id: number }
@@ -1352,6 +1452,99 @@ const callWorker = async (path: string, body: object = {}) => {
     });
     return r.json();
 };
+
+// ─── Publishing (manual clip publish + AiToEarn account ops) ──────────────────
+
+/** GET /publish/accounts?platform=tiktok
+ * Lists AiToEarn-connected accounts (optionally filtered by platform).
+ */
+app.get('/publish/accounts', async (req: Request, res: Response) => {
+    try {
+        const platform = (req.query.platform as string) || undefined;
+        const result = await callWorker('/aitoearn/accounts', platform ? { platform } : {});
+        res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /publish
+ * Manually publish a stored clip to chosen platforms/accounts.
+ * Body: { clip_id, source_type, channels[], selected_accounts{}, account_ids[],
+ *         title, desc, caption, hashtags[], topics[], cover_url, publish_time, yt_privacy }
+ */
+app.post('/publish', async (req: Request, res: Response) => {
+    try {
+        const result = await callWorker('/publish/clip', req.body);
+        res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /publish/status?flow_id=xxx
+ * Poll the status of a publishing task created during a publish fanout.
+ */
+app.get('/publish/status', async (req: Request, res: Response) => {
+    const flowId = (req.query.flow_id as string) || (req.query.flowId as string);
+    if (!flowId) return res.status(400).json({ error: 'flow_id is required' });
+    try {
+        const result = await callWorker('/aitoearn/publish/status', { flow_id: flowId });
+        res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Agent control (Hermes pipelines) ─────────────────────────────────────────
+
+/** POST /agent/prompt
+ * Natural-language order. If a source URL is included -> link-publish, else discover-publish.
+ * Body: { prompt, source_url?, channels?, selected_accounts?, account_ids?, title?, desc?, hashtags? }
+ */
+app.post('/agent/prompt', async (req: Request, res: Response) => {
+    const { prompt, source_url } = req.body || {};
+    if (!prompt && !source_url) {
+        return res.status(400).json({ error: 'prompt or source_url is required' });
+    }
+    const hasUrl = !!source_url || /https?:\/\//i.test(String(prompt || ''));
+    const route = hasUrl ? '/hermes/link-publish' : '/hermes/discover-publish';
+    const body = { objective: prompt, prompt, ...req.body };
+    try {
+        const result = await callWorker(route, body);
+        res.json({ route, ...result });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /agent/status — Hermes snapshot of pipeline health. */
+app.get('/agent/status', async (_req: Request, res: Response) => {
+    try {
+        const result = await callWorker('/hermes/status', {});
+        res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /agent/logs?lines=200 — tail the Hermes log file. */
+app.get('/agent/logs', async (req: Request, res: Response) => {
+    const lines = Number(req.query.lines) || 200;
+    try {
+        const result = await callWorker('/hermes/log-tail', { lines });
+        res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /agent/pipeline/:name — run a named Hermes pipeline.
+ * name: finance | viral | link-publish | discover-publish | full-ops
+ */
+app.post('/agent/pipeline/:name', async (req: Request, res: Response) => {
+    const map: Record<string, string> = {
+        finance: '/hermes/finance-pipeline',
+        viral: '/hermes/viral-pipeline',
+        'link-publish': '/hermes/link-publish',
+        'discover-publish': '/hermes/discover-publish',
+        'full-ops': '/hermes/full-ops',
+    };
+    const route = map[req.params.name];
+    if (!route) return res.status(400).json({ error: `unknown pipeline: ${req.params.name}` });
+    try {
+        const result = await callWorker(route, req.body || {});
+        res.json({ pipeline: req.params.name, ...result });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
 
 app.post('/arbitrage/discover-trends', async (req: Request, res: Response) => {
     try {
