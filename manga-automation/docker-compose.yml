@@ -58,6 +58,10 @@ services:
       NODE_ENV: production
       PORT: 3001
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      PYTHON_WORKER_URL: http://python-worker:8080
+      QWENPAW_CONSOLE_URL: http://qwenpaw:8088
+      SUMMON_BACKEND: ${SUMMON_BACKEND:-qwenpaw}
+      QWENPAW_CHAT_TIMEOUT: ${QWENPAW_CHAT_TIMEOUT:-600000}
     ports:
       - "3001:3001"
     volumes:
@@ -68,6 +72,10 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      python-worker:
+        condition: service_started
+      qwenpaw:
         condition: service_healthy
     healthcheck:
       test: [ "CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1" ]
@@ -83,6 +91,8 @@ services:
       dockerfile: Dockerfile.python
     restart: unless-stopped
     networks: [ manga-net ]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # Pass through posting / platform keys from .env (POSTIZ_*, META_*, PINTEREST_*, etc.).
     # Values under `environment:` below still override env_file when the same key is set.
     env_file:
@@ -139,6 +149,7 @@ services:
       OBSIDIAN_VAULT_PATH: /data/obsidian-vault
       REFERRAL_HUB_URL: ${REFERRAL_HUB_URL:-https://your-domain.com/links}
       EARNINGS_SCREENSHOTS_DIR: /data/earnings_screenshots
+      # AiToEarn URLs come from env_file (.env) — use host.docker.internal there, not localhost.
     ports:
       # Host 18080 — avoids conflict with Apache/EDB PEM or AiToEarn on 8080/9080
       - "18080:8080"
@@ -286,6 +297,76 @@ services:
       manga-agents:
         condition: service_healthy
 
+  # ─── QwenPaw Multi-Agent Control Plane ────────────────────────────────────────
+  qwenpaw:
+    image: agentscope/qwenpaw:latest
+    restart: unless-stopped
+    networks: [ manga-net ]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    ports:
+      - "8088:8088"
+    environment:
+      # LLM provider — same Anthropic key already in .env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      # QwenPaw-specific (optional overrides)
+      QWENPAW_AUTH_ENABLED: ${QWENPAW_AUTH_ENABLED:-false}
+      QWENPAW_MODEL: ${QWENPAW_MODEL:-claude-sonnet-4-20250514}
+      # Channel API keys
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      # External tool keys
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      APIFY_API: ${APIFY_API:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
+      YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
+      YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN:-}
+      # Pipeline-specific env vars — passed through to Skills subprocess
+      DATABASE_URL: postgresql://manga_user:${DB_PASSWORD}@postgres:5432/manga_automation
+      CHROMADB_URL: http://chromadb:8000
+      REDIS_URL: redis://redis:6379
+      PYTHON_WORKER_URL: http://python-worker:8080
+      MASTRA_API_URL: http://manga-agents:3001
+      # AiToEarn URLs/keys from env_file (.env) — use host.docker.internal for container → host AiToEarn
+      AITOEARN_PRIMARY: ${AITOEARN_PRIMARY:-true}
+      # TikTok + Platform keys
+      TIKTOK_EMAIL: ${TIKTOK_EMAIL:-}
+      TIKTOK_PASSWORD: ${TIKTOK_PASSWORD:-}
+      # Paths
+      PANELS_DIR: /data/panels
+      VIDEOS_DIR: /data/videos
+      LOGS_DIR: /data/logs
+      ARBITRAGE_VIDEOS_DIR: /data/arbitrage_videos
+      EARNINGS_SCREENSHOTS_DIR: /data/earnings_screenshots
+      FINANCE_VIDEOS_DIR: /data/finance_videos
+      # Backend switching — "qwenpaw" or "crewai"
+      SUMMON_BACKEND: ${SUMMON_BACKEND:-qwenpaw}
+    volumes:
+      - qwenpaw-data:/app/working
+      - qwenpaw-secrets:/app/working.secret
+      - qwenpaw-backups:/app/working.backups
+      # Mount pipeline scripts read-only so Skills can call them
+      - ./scripts:/app/scripts:ro
+      - ./data/videos:/data/videos
+      - ./data/arbitrage_videos:/data/arbitrage_videos
+      - ./data/finance_videos:/data/finance_videos
+      - ./data/logs:/data/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      python-worker:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -sf http://localhost:8088/ > /dev/null || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
   # ─── OpenClaw Gateway ─────────────────────────────────────────────────────────
   # openclaw-gateway:
   #   image: openclaw/gateway:latest
@@ -334,3 +415,9 @@ services:
     depends_on:
       manga-agents:
         condition: service_healthy
+
+# ─── Named Volumes ─────────────────────────────────────────────────────────────
+volumes:
+  qwenpaw-data:
+  qwenpaw-secrets:
+  qwenpaw-backups:

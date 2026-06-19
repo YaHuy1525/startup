@@ -2,16 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Send, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
 import { apiGet, apiPost } from '../services/api';
 import type { Account, Clip, PublishResult } from '../types';
+import { extractAccounts, extractAccountsError } from '../utils/accounts';
 
 interface Props {
     clip: Clip;
     onClose: () => void;
-}
-
-function extractAccounts(d: any): Account[] {
-    const candidates = [d?.result?.result?.accounts, d?.result?.accounts, d?.accounts];
-    for (const c of candidates) if (Array.isArray(c)) return c as Account[];
-    return [];
 }
 
 function extractPublish(d: any): PublishResult['result'] & { _flowIds: string[]; _error?: string } {
@@ -58,7 +53,11 @@ export default function PublishComposer({ clip, onClose }: Props) {
         (async () => {
             try {
                 const data = await apiGet('/publish/accounts');
-                setAccounts(extractAccounts(data));
+                const rows = extractAccounts(data);
+                setAccounts(rows);
+                if (rows.length === 0) {
+                    setAccError(extractAccountsError(data));
+                }
             } catch (e: any) {
                 setAccError(e.message);
             } finally {

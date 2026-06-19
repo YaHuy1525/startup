@@ -87,14 +87,14 @@ Keep them API-callable from your existing `worker.py` pattern.
 Add a new workflow set (same orchestration style as your current stack):
 
 1. **Task Intake Workflow**
-   - Trigger: Telegram command or webhook
-   - Stores task, invokes classifier + draft generator
+  - Trigger: Telegram command or webhook
+  - Stores task, invokes classifier + draft generator
 2. **Quality Review Workflow**
-   - Runs rubric scoring and risk checks
-   - Sends “ready to submit manually” packet
+  - Runs rubric scoring and risk checks
+  - Sends “ready to submit manually” packet
 3. **Session Analytics Workflow**
-   - Every 6-24h: aggregates acceptance rate, rework rate, hourly estimate
-   - Sends coaching summary
+  - Every 6-24h: aggregates acceptance rate, rework rate, hourly estimate
+  - Sends coaching summary
 
 ## 5) Telegram bot commands
 
@@ -134,19 +134,23 @@ This keeps platform usage inside expected ToS boundaries.
 ## 30-Day Rollout Plan
 
 ### Week 1: Foundation
+
 - Add DB migrations and basic `/gig/task/create` + `/gig/task/draft`.
 - Add Telegram intake command.
 - Store manual outcomes (`accepted/rejected`) only.
 
 ### Week 2: Quality loop
+
 - Build rubric scoring + risk flags.
 - Add review packet output and `/gig_score`.
 
 ### Week 3: Analytics loop
+
 - Add session tracking, hourly calculations, rejection clustering.
 - Ship `/gig_today` and `/gig_week`.
 
 ### Week 4: Optimization
+
 - Add template win-rate learning.
 - Add “next best task type” recommendations by user skill/performance.
 
@@ -206,16 +210,18 @@ Add a lightweight copilot module focused on speed, quality, and consistency:
 
 Use this matrix as operating policy: AI supports, you execute manually.
 
-| Workflow Step | AI Does | You Do Manually | Boundary |
-|---|---|---|---|
-| Opportunity triage | Rank tasks by expected hourly rate and fit | Choose and open actual task | No auto-accept/join |
-| Task/rubric parsing | Convert brief into checklist + success criteria | Confirm checklist against platform text | Must verify before action |
-| Draft generation | Produce 2-3 candidate answers/prompts | Edit, personalize, and submit final | Never submit raw AI draft |
-| Quality review | Score clarity, completeness, and risk flags | Resolve flagged issues | Human must sign off |
-| Research support | Summarize unfamiliar topics quickly | Validate key facts in task context | No blind factual copy |
-| Session logging | Auto-build summary and KPI trends | Enter true minutes/payout/outcome | No synthetic metrics |
-| Rejection analysis | Cluster failure reasons and suggest fixes | Apply fixes in next tasks | Human decides final strategy |
-| Support tickets | Draft clear, professional ticket language | Submit with real evidence | No fabricated evidence |
+
+| Workflow Step       | AI Does                                         | You Do Manually                         | Boundary                     |
+| ------------------- | ----------------------------------------------- | --------------------------------------- | ---------------------------- |
+| Opportunity triage  | Rank tasks by expected hourly rate and fit      | Choose and open actual task             | No auto-accept/join          |
+| Task/rubric parsing | Convert brief into checklist + success criteria | Confirm checklist against platform text | Must verify before action    |
+| Draft generation    | Produce 2-3 candidate answers/prompts           | Edit, personalize, and submit final     | Never submit raw AI draft    |
+| Quality review      | Score clarity, completeness, and risk flags     | Resolve flagged issues                  | Human must sign off          |
+| Research support    | Summarize unfamiliar topics quickly             | Validate key facts in task context      | No blind factual copy        |
+| Session logging     | Auto-build summary and KPI trends               | Enter true minutes/payout/outcome       | No synthetic metrics         |
+| Rejection analysis  | Cluster failure reasons and suggest fixes       | Apply fixes in next tasks               | Human decides final strategy |
+| Support tickets     | Draft clear, professional ticket language       | Submit with real evidence               | No fabricated evidence       |
+
 
 ### Green / Yellow / Red boundaries
 
@@ -237,31 +243,38 @@ Use this matrix as operating policy: AI supports, you execute manually.
 ## Why Other Platform Types Were Not Chosen
 
 ## Research studies (Prolific/CloudResearch) — **Not chosen**
+
 - Not selected as the primary platform because AI training gigs have a higher upside.
 - Still recommended as the **second category** because it is stable, manual-safe, and easy to layer into your current system.
 
 ## GPT offer sites (ySense/Swagbucks/Freecash/CashInStyle) — **Not chosen**
+
 - The guide marks these as **AI: LIMITED**.
 - High ban risk if automation is pushed too far; most useful automation is only comparison/logging/support messaging.
 - Lower quality moat for your engineering-heavy pipeline.
 
 ## Passive bandwidth apps — **Not chosen**
+
 - Install-and-forget model with tiny operational surface.
 - Very little room for a robust automation product.
 
 ## Cashback apps — **Not chosen**
+
 - Useful personally, but product value depends on shopping behavior and regional app support.
 - Weaker fit with your existing queue/agent/pipeline architecture.
 
 ## Crypto mining — **Not chosen**
+
 - Profitability depends mostly on electricity cost and hardware economics, not workflow intelligence.
 - Automation helps scheduling, but cannot fix poor unit economics.
 
 ## Investing (Robinhood) — **Not chosen**
+
 - Strong AI research use case, but this drifts into financial-advice/compliance territory.
 - Higher legal/regulatory complexity than your current media automation domain.
 
 ## Gambling-style platforms (Bingo Cash, Stake, etc.) — **Rejected**
+
 - The guide explicitly marks them **AVOID**.
 - No responsible or sustainable automation strategy exists here.
 

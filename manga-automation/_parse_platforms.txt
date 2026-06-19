@@ -1,0 +1,18 @@
+﻿python : Traceback (most recent call last):
+At C:\Users\ASUS\AppData\Local\Temp\ps-script-dca6a74d-a398-4f8d-894b-8a073a63e3ba.ps1:99 char:40
++ cd "d:\Code\startup\manga-automation"; python -c "
++                                        ~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "<string>", line 13, in <module>
+  File "C:\Program Files\Python312\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 917-922: character maps to <undefined>
+account 141
+connected 0
+uid 6
+userId 0
+list 44
+first account idx 2608

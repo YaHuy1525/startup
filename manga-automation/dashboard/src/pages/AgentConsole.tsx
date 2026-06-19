@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Bot, Send, RefreshCw, Terminal, Activity } from 'lucide-react';
 import { apiGet, apiPost } from '../services/api';
 import type { Account } from '../types';
+import { extractAccounts, extractAccountsError } from '../utils/accounts';
 
 type PublishRow = {
     platform?: string;
@@ -31,12 +32,6 @@ type PublishSummary = {
     channels: Record<string, PlatformStats>;
     rows: PublishRow[];
 };
-
-function extractAccounts(d: any): Account[] {
-    const candidates = [d?.result?.result?.accounts, d?.result?.accounts, d?.accounts];
-    for (const c of candidates) if (Array.isArray(c)) return c as Account[];
-    return [];
-}
 
 function toInt(value: unknown, fallback = 0): number {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -103,8 +98,12 @@ function extractPublishSummary(steps: any[], published: number, failed: number):
 
 export default function AgentConsole() {
     const [prompt, setPrompt] = useState('');
+    const [agentId, setAgentId] = useState('pipeline-manager');
+    const [agents, setAgents] = useState<{ id: string; name?: string }[]>([]);
     const [channels, setChannels] = useState<Set<string>>(new Set());
     const [accounts, setAccounts] = useState<Account[]>([]);
+    const [accountsError, setAccountsError] = useState<string | null>(null);
+    const [loadingAccounts, setLoadingAccounts] = useState(true);
     const [running, setRunning] = useState(false);
     const [result, setResult] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
@@ -113,11 +112,34 @@ export default function AgentConsole() {
     const [logs, setLogs] = useState<string>('');
     const [loadingSide, setLoadingSide] = useState(false);
 
+    const loadAccounts = async () => {
+        setLoadingAccounts(true);
+        setAccountsError(null);
+        try {
+            const data = await apiGet('/publish/accounts');
+            const rows = extractAccounts(data);
+            setAccounts(rows);
+            if (rows.length === 0) {
+                setAccountsError(extractAccountsError(data) || 'No connected accounts found.');
+            }
+        } catch (e: any) {
+            setAccounts([]);
+            setAccountsError(e?.message || 'Failed to load accounts.');
+        } finally {
+            setLoadingAccounts(false);
+        }
+    };
+
     useEffect(() => {
-        (async () => {
-            try { setAccounts(extractAccounts(await apiGet('/publish/accounts'))); } catch { /* ignore */ }
-        })();
+        loadAccounts();
         refreshSide();
+        apiGet('/agent/agents')
+            .then((data: any) => {
+                const rows = Array.isArray(data?.agents) ? data.agents : [];
+                const filtered = rows.filter((a: any) => a?.id && a.id !== 'default');
+                if (filtered.length) setAgents(filtered);
+            })
+            .catch(() => {});
     }, []);
 
     const platforms = useMemo(
@@ -139,7 +161,7 @@ export default function AgentConsole() {
         setError(null);
         setResult(null);
         try {
-            const body: any = { prompt };
+            const body: any = { prompt, agent_id: agentId };
             if (channels.size) body.channels = Array.from(channels);
             const data = await apiPost('/agent/prompt', body);
             setResult(data);
@@ -191,18 +213,35 @@ export default function AgentConsole() {
                         <Bot size={32} /> Agent Console
                     </h2>
                     <p style={{ color: 'var(--text-secondary)', marginTop: 8 }}>
-                        Describe what you want. The agent finds the best clip, downloads it, and publishes via AiToEarn.
+                        Powered by QwenPaw — describe what you want and the pipeline agent runs trend, source, publish, and engagement skills.
                     </p>
                 </div>
-                <button className="btn-secondary" onClick={refreshSide}>
-                    <RefreshCw size={18} className={loadingSide ? 'spin' : ''} /> Refresh
-                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn-secondary" onClick={loadAccounts} disabled={loadingAccounts}>
+                        <RefreshCw size={18} className={loadingAccounts ? 'spin' : ''} /> Accounts
+                    </button>
+                    <button className="btn-secondary" onClick={refreshSide}>
+                        <RefreshCw size={18} className={loadingSide ? 'spin' : ''} /> Status
+                    </button>
+                </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 24 }}>
                 {/* Left: prompt + result */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                     <div className="glass" style={{ padding: 24 }}>
+                        <div className="form-group">
+                            <label>Agent</label>
+                            <select
+                                className="form-input"
+                                value={agentId}
+                                onChange={e => setAgentId(e.target.value)}
+                            >
+                                {(agents.length ? agents : [{ id: 'pipeline-manager', name: 'Pipeline Manager' }]).map(a => (
+                                    <option key={a.id} value={a.id}>{a.name || a.id}</option>
+                                ))}
+                            </select>
+                        </div>
                         <div className="form-group">
                             <label>Your order</label>
                             <textarea
@@ -215,8 +254,14 @@ export default function AgentConsole() {
                         </div>
                         <div className="form-group">
                             <label>Target platforms (optional — defaults to the agent's choice)</label>
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                {platforms.length === 0 && <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>No connected accounts detected.</span>}
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                {loadingAccounts && <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Loading accounts…</span>}
+                                {!loadingAccounts && accountsError && (
+                                    <span style={{ color: 'var(--danger, #f87171)', fontSize: 13 }}>{accountsError}</span>
+                                )}
+                                {!loadingAccounts && !accountsError && platforms.length === 0 && (
+                                    <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>No connected accounts detected.</span>
+                                )}
                                 {platforms.map(p => (
                                     <button
                                         key={p}
@@ -241,7 +286,13 @@ export default function AgentConsole() {
                         <div className="glass" style={{ padding: 24 }}>
                             <h3 style={{ fontWeight: 600, marginBottom: 12 }}>
                                 Result {result.route ? `(${result.route})` : ''}
+                                {result.backend ? ` · ${result.backend}` : ''}
                             </h3>
+                            {payload?.text && (
+                                <div style={{ marginBottom: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                                    {payload.text}
+                                </div>
+                            )}
                             {(published !== undefined || failed !== undefined) && (
                                 <div style={{ marginBottom: 12 }}>
                                     <span className="badge published">Published {published ?? 0}</span>{' '}

@@ -156,8 +156,25 @@ PLATFORM_ALIASES: dict[str, str] = {
 }
 
 
+CHANNELS_V2_PLATFORM_NAMES: set[str] = {
+    "tiktok",
+    "youtube",
+    "instagram",
+    "facebook",
+    "threads",
+    "pinterest",
+    "bilibili",
+    "douyin",
+    "kwai",
+    "twitter",
+}
+
+
 class AiToEarnClient:
     def __init__(self):
+        self._tool_names_cache: set[str] | None = None
+        self._accounts_cache: dict[str, Any] | None = None
+        self._accounts_cache_at: float = 0.0
         self.config = AiToEarnConfig(
             base_url=(os.environ.get("AITOEARN_BASE_URL") or "https://aitoearn.ai").rstrip("/"),
             api_key=(os.environ.get("AITOEARN_API_KEY") or "").strip(),
@@ -265,6 +282,26 @@ class AiToEarnClient:
             return init
         return self._mcp_request("tools/call", {"name": tool_name, "arguments": arguments or {}})
 
+    def _mcp_tool_names(self) -> set[str]:
+        if self._tool_names_cache is None:
+            listed = self._mcp_list_tools()
+            tools = listed.get("result", {}).get("tools", []) if listed.get("ok") else []
+            self._tool_names_cache = {
+                str(t.get("name")).strip()
+                for t in tools
+                if isinstance(t, dict) and t.get("name")
+            }
+        return self._tool_names_cache
+
+    def _uses_channels_v2_publish(self) -> bool:
+        return "createChannelPublishFlow" in self._mcp_tool_names()
+
+    def _publish_status_tool(self) -> tuple[str, str]:
+        """Return (tool_name, id_argument_key) for publish status polling."""
+        if "getChannelPublishRecordByFlowId" in self._mcp_tool_names():
+            return "getChannelPublishRecordByFlowId", "flowId"
+        return "getPublishingTaskStatus", "flowId"
+
     def _mcp_result_text(self, result: dict[str, Any] | None) -> str:
         result = result or {}
         content = result.get("content")
@@ -295,6 +332,168 @@ class AiToEarnClient:
                 }
             )
         return accounts
+
+    def _parse_accounts_from_structured(self, raw_result: dict[str, Any] | None) -> list[dict[str, str]]:
+        raw_result = raw_result or {}
+        data_obj = raw_result.get("data") if isinstance(raw_result, dict) else None
+        list_obj: list[Any] = []
+        if isinstance(data_obj, dict):
+            list_obj = data_obj.get("list") or data_obj.get("accounts") or []
+        elif isinstance(data_obj, list):
+            list_obj = data_obj
+
+        accounts: list[dict[str, str]] = []
+        for item in list_obj:
+            if not isinstance(item, dict):
+                continue
+            account_id = item.get("id") or item.get("accountId")
+            account_type = item.get("type") or item.get("platform") or item.get("accountType")
+            if account_id and account_type:
+                accounts.append(
+                    {
+                        "id": str(account_id),
+                        "type": str(account_type).lower(),
+                        "account": str(item.get("account") or item.get("nickname") or ""),
+                    }
+                )
+        return accounts
+
+    def _parse_accounts_from_publish_records(self, text: str) -> list[dict[str, str]]:
+        """Parse unique AiToEarn channel accounts from listChannelPublishRecords output."""
+        accounts: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for block in text.split("- id: ")[1:]:
+            id_match = re.search(r"accountId:\s*([^\n]+)", block)
+            type_match = re.search(r"accountType:\s*([^\n]+)", block)
+            if not id_match or not type_match:
+                continue
+            account_id = id_match.group(1).strip().strip('"').strip("'")
+            account_type = type_match.group(1).strip().strip('"').strip("'").lower()
+            if not account_id or account_id in seen:
+                continue
+            seen.add(account_id)
+            display = account_id.split("_", 1)[-1] if "_" in account_id else account_id
+            accounts.append({"id": account_id, "type": account_type, "account": display})
+        return accounts
+
+    def _parse_accounts_from_group_list_text(self, text: str) -> list[dict[str, str]]:
+        """Parse getAccountListByGroupId / legacy getAllAccounts text formats."""
+        accounts = self._parse_accounts_from_text(text)
+        if accounts:
+            return accounts
+
+        parsed: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for line in text.splitlines():
+            if not re.search(r"\b(id|type|account|name)\s*:", line, flags=re.IGNORECASE):
+                continue
+            type_match = re.search(r"Type:\s*([^,\n]+)", line, flags=re.IGNORECASE)
+            id_match = re.search(r"ID:\s*([^,\n]+)", line, flags=re.IGNORECASE)
+            account_match = re.search(r"(?:Account|Name):\s*([^,\n]+)", line, flags=re.IGNORECASE)
+            if not type_match or not id_match:
+                continue
+            account_id = id_match.group(1).strip().strip('"').strip("'")
+            if not account_id or account_id in seen:
+                continue
+            seen.add(account_id)
+            parsed.append(
+                {
+                    "id": account_id,
+                    "type": type_match.group(1).strip().strip('"').strip("'").lower(),
+                    "account": (account_match.group(1).strip().strip('"').strip("'") if account_match else ""),
+                }
+            )
+        return parsed
+
+    def _fetch_accounts_from_account_groups(self) -> list[dict[str, str]]:
+        """Self-hosted AiToEarn (legacy MCP): getAccountGroupList → getAccountListByGroupId."""
+        groups_call = self._mcp_call_tool("getAccountGroupList", {})
+        if not groups_call.get("ok"):
+            return []
+
+        groups_text = self._mcp_result_text(groups_call.get("result", {}))
+        group_ids: list[str] = []
+        for match in re.finditer(r"ID:\s*([^,\n]+)", groups_text):
+            group_id = match.group(1).strip()
+            if group_id and group_id not in group_ids:
+                group_ids.append(group_id)
+
+        accounts: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for group_id in group_ids:
+            list_call = self._mcp_call_tool("getAccountListByGroupId", {"groupId": group_id})
+            if not list_call.get("ok"):
+                continue
+            list_text = self._mcp_result_text(list_call.get("result", {}))
+            for acc in self._parse_accounts_from_group_list_text(list_text):
+                if acc["id"] in seen:
+                    continue
+                seen.add(acc["id"])
+                accounts.append(acc)
+        return accounts
+
+    def _fetch_accounts_from_publish_records(self) -> list[dict[str, str]]:
+        accounts: list[dict[str, str]] = []
+        seen: set[str] = set()
+        page_size = max(20, int(os.environ.get("AITOEARN_ACCOUNTS_PAGE_SIZE", "100")))
+        max_pages = max(1, int(os.environ.get("AITOEARN_ACCOUNTS_MAX_PAGES", "10")))
+
+        for page in range(1, max_pages + 1):
+            call = self._mcp_call_tool(
+                "listChannelPublishRecords",
+                {"pageNo": page, "pageSize": page_size},
+            )
+            if not call.get("ok"):
+                break
+            text = self._mcp_result_text(call.get("result", {}))
+            batch = self._parse_accounts_from_publish_records(text)
+            if not batch:
+                break
+            for acc in batch:
+                if acc["id"] in seen:
+                    continue
+                seen.add(acc["id"])
+                accounts.append(acc)
+            if len(text.split("- id: ")) - 1 < page_size:
+                break
+        return accounts
+
+    def _collect_connected_accounts(self) -> tuple[list[dict[str, str]], str | None, dict[str, Any] | None]:
+        """
+        Resolve AiToEarn-connected accounts across MCP API versions.
+
+        - Cloud v2: listChannelPublishRecords (getAllAccounts removed)
+        - Self-hosted legacy: getAccountGroupList + getAccountListByGroupId
+        - Older cloud: getAllAccounts text blocks
+        """
+        # Cloud v2 and self-hosted use different tools — try the reliable paths first.
+        accounts = self._fetch_accounts_from_publish_records()
+        if accounts:
+            return accounts, "listChannelPublishRecords", None
+
+        accounts = self._fetch_accounts_from_account_groups()
+        if accounts:
+            return accounts, "getAccountGroupList+getAccountListByGroupId", None
+
+        configured = os.environ.get("AITOEARN_LIST_ACCOUNTS_TOOLS", "getAllAccounts,listChannelAccounts")
+        errors: list[str] = []
+        for tool_name in [part.strip() for part in configured.split(",") if part.strip()]:
+            call = self._mcp_call_tool(tool_name, {})
+            if not call.get("ok"):
+                errors.append(f"{tool_name}:{call.get('error', 'failed')}")
+                continue
+            text = self._mcp_result_text(call.get("result", {}))
+            accounts = self._parse_accounts_from_text(text)
+            if not accounts:
+                accounts = self._parse_accounts_from_structured(call.get("result"))
+            if not accounts and tool_name == "getAccountGroupList":
+                accounts = self._fetch_accounts_from_account_groups()
+                if accounts:
+                    return accounts, "getAccountGroupList+getAccountListByGroupId", call
+            if accounts:
+                return accounts, tool_name, call
+
+        return [], None, {"errors": errors} if errors else None
 
     def _normalize_platform(self, name: str) -> str:
         key = (name or "").strip().lower()
@@ -336,11 +535,142 @@ class AiToEarnClient:
         return ""
 
     def _extract_flow_id_from_result(self, result: Any) -> str:
-        keys = {"flowid", "flow_id", "publishtaskid", "taskid"}
+        keys = {"flowid", "flow_id", "publishtaskid"}
         for key, value in _walk(result):
             if str(key).replace("-", "").replace("_", "").lower() in keys and isinstance(value, str) and value.strip():
                 return value.strip()
         return ""
+
+    def _extract_task_ids_from_result(self, result: Any) -> list[str]:
+        task_ids: list[str] = []
+        for key, value in _walk(result):
+            if str(key).replace("-", "").replace("_", "").lower() != "taskid":
+                continue
+            if isinstance(value, str) and value.strip() and value.strip() not in task_ids:
+                task_ids.append(value.strip())
+        return task_ids
+
+    def _channels_v2_platform(self, platform: str) -> str:
+        return self._normalize_platform(platform)
+
+    def _append_topics_to_body(self, body: str, payload: dict[str, Any], *, limit: int | None = None) -> str:
+        topics = self._extract_topics(payload)
+        if limit is not None:
+            topics = topics[:limit]
+        if not topics:
+            return body
+        hashtag_line = " ".join(f"#{t.lstrip('#')}" for t in topics if t)
+        if not hashtag_line:
+            return body
+        if hashtag_line in body:
+            return body
+        return f"{body}\n{hashtag_line}".strip() if body else hashtag_line
+
+    def _build_channels_v2_item_option(self, platform: str, payload: dict[str, Any]) -> dict[str, Any]:
+        cover_url = str(payload.get("cover_url") or payload.get("coverUrl") or "").strip()
+        video_url = self._extract_video_url(payload)
+        topics = self._extract_topics(payload)
+
+        if platform in {"youtube", "youtube_shorts"}:
+            option: dict[str, Any] = {
+                "privacyStatus": os.environ.get("AITOEARN_YT_PRIVACY", "public"),
+                "license": os.environ.get("AITOEARN_YT_LICENSE", "youtube"),
+                "categoryId": os.environ.get("AITOEARN_YT_CATEGORY_ID", "22"),
+            }
+            if topics:
+                option["tags"] = topics
+            return option
+
+        if platform == "tiktok":
+            return {"source": "PULL_FROM_URL" if video_url else "FILE_UPLOAD"}
+
+        if platform in {"instagram", "instagram_reels"}:
+            option = {"media_type": "REELS" if video_url else "IMAGE"}
+            if cover_url:
+                option["cover_url"] = cover_url
+            caption = self._append_topics_to_body(
+                str(payload.get("desc") or payload.get("description") or payload.get("caption") or "").strip(),
+                payload,
+            )
+            if caption:
+                option["caption"] = caption
+            return option
+
+        if platform == "pinterest":
+            board_id = (
+                payload.get("board_id")
+                or payload.get("boardId")
+                or payload.get("pinterest_board_id")
+                or os.environ.get("AITOEARN_PINTEREST_BOARD_ID", "").strip()
+            )
+            if board_id:
+                option = {"boardId": str(board_id)}
+                if cover_url:
+                    option["coverImageUrl"] = cover_url
+                return option
+
+        return {}
+
+    def _build_channels_v2_flow_arguments(
+        self,
+        platform: str,
+        account_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        title = str(payload.get("title") or payload.get("caption") or "AI generated content").strip()
+        desc = str(payload.get("desc") or payload.get("description") or payload.get("caption") or title).strip()
+        if platform == "tiktok":
+            desc = self._append_topics_to_body(desc, payload, limit=5)
+        else:
+            desc = self._append_topics_to_body(desc, payload)
+
+        video_url = self._extract_video_url(payload)
+        cover_url = str(payload.get("cover_url") or payload.get("coverUrl") or "").strip()
+        img_urls = self._extract_img_urls(payload)
+        publish_at = normalize_publish_time(payload.get("publishTime") or payload.get("publish_time"))
+        if not publish_at:
+            publish_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        content: dict[str, Any] = {"title": title, "body": desc or title}
+        if video_url:
+            content["media"] = [{"url": video_url}]
+        elif img_urls:
+            content["media"] = [{"url": url} for url in img_urls]
+        if cover_url:
+            content["cover"] = {"url": cover_url}
+
+        context: dict[str, Any] = {"type": "video" if video_url else "article"}
+        if video_url:
+            context["videoUrl"] = video_url
+        if img_urls:
+            context["imgUrlList"] = img_urls
+        explicit_user_task_id = payload.get("user_task_id") or payload.get("userTaskId")
+        if explicit_user_task_id:
+            context["userTaskId"] = str(explicit_user_task_id)
+
+        item: dict[str, Any] = {
+            "platform": self._channels_v2_platform(platform),
+            "accountId": account_id,
+        }
+        option = self._build_channels_v2_item_option(platform, payload)
+        if option:
+            item["option"] = option
+
+        return {
+            "content": content,
+            "publishAt": publish_at,
+            "context": context,
+            "items": [item],
+        }
+
+    def _maybe_publish_channel_tasks_now(self, result: dict[str, Any] | None) -> list[dict[str, Any]]:
+        if "publishChannelTaskNow" not in self._mcp_tool_names():
+            return []
+        outcomes: list[dict[str, Any]] = []
+        for task_id in self._extract_task_ids_from_result(result):
+            call = self._mcp_call_tool("publishChannelTaskNow", {"taskId": task_id})
+            outcomes.append({"task_id": task_id, "ok": call.get("ok"), "error": call.get("error")})
+        return outcomes
 
     def _parse_status_text(self, text: str) -> dict[str, Any]:
         status_raw = ""
@@ -420,36 +750,17 @@ class AiToEarnClient:
         return args
 
     def _run_publish_fanout(self, payload: dict[str, Any]) -> dict[str, Any]:
-        list_accounts = self._mcp_call_tool("getAllAccounts", {})
-        if not list_accounts.get("ok"):
-            return list_accounts
-
-        accounts_text = self._mcp_result_text(list_accounts.get("result", {}))
-        accounts = self._parse_accounts_from_text(accounts_text)
+        accounts, accounts_source, _meta = self._collect_connected_accounts()
         if not accounts:
-            raw_result = list_accounts.get("result", {})
-            data_obj = raw_result.get("data") if isinstance(raw_result, dict) else None
-            list_obj = []
-            if isinstance(data_obj, dict):
-                list_obj = data_obj.get("list") or data_obj.get("accounts") or []
-            if isinstance(data_obj, list):
-                list_obj = data_obj
-            if isinstance(list_obj, list):
-                for item in list_obj:
-                    if not isinstance(item, dict):
-                        continue
-                    account_id = item.get("id") or item.get("accountId")
-                    account_type = item.get("type") or item.get("platform")
-                    if account_id and account_type:
-                        accounts.append(
-                            {
-                                "id": str(account_id),
-                                "type": str(account_type).lower(),
-                                "account": str(item.get("account") or item.get("nickname") or ""),
-                            }
-                        )
-        if not accounts:
-            return {"ok": False, "error": "no_connected_accounts_found"}
+            return {
+                "ok": False,
+                "error": "no_connected_accounts_found",
+                "hint": (
+                    "Link social accounts to your AiToEarn API key in Settings, "
+                    "or publish once from the AiToEarn dashboard so records exist."
+                ),
+                "meta": _meta,
+            }
 
         channels_raw = payload.get("channels")
         targets: set[str] = set()
@@ -488,6 +799,8 @@ class AiToEarnClient:
         poll_attempts = int(os.environ.get("AITOEARN_PUBLISH_STATUS_POLL_ATTEMPTS", "4"))
         poll_sleep_sec = float(os.environ.get("AITOEARN_PUBLISH_STATUS_POLL_SEC", "3"))
         unverified_as_failure = _bool_env("AITOEARN_UNVERIFIED_AS_FAILURE", default=False)
+        use_channels_v2 = self._uses_channels_v2_publish()
+        status_tool, status_id_key = self._publish_status_tool()
 
         for acc in accounts:
             platform = self._normalize_platform(acc.get("type", ""))
@@ -499,13 +812,33 @@ class AiToEarnClient:
             platform_selected = selected_accounts_by_platform.get(platform)
             if platform_selected and account_id not in platform_selected:
                 continue
-            tool_name = PUBLISH_TOOL_BY_PLATFORM.get(platform)
-            if not tool_name:
-                continue
+            if use_channels_v2:
+                if self._channels_v2_platform(platform) not in CHANNELS_V2_PLATFORM_NAMES:
+                    continue
+                tool_name = "createChannelPublishFlow"
+            else:
+                tool_name = PUBLISH_TOOL_BY_PLATFORM.get(platform)
+                if not tool_name or tool_name not in self._mcp_tool_names():
+                    results.append(
+                        {
+                            "platform": platform,
+                            "account_id": account_id,
+                            "account": acc.get("account"),
+                            "success": False,
+                            "error": f"unsupported_or_missing_publish_tool:{tool_name}",
+                            "tool": tool_name,
+                        }
+                    )
+                    channel_stats.setdefault(platform, {"success": 0, "failed": 0})["failed"] += 1
+                    continue
 
-            args = self._build_publish_arguments(platform, acc["id"], payload)
+            if use_channels_v2:
+                args = self._build_channels_v2_flow_arguments(platform, acc["id"], payload)
+                has_media = bool(self._extract_video_url(payload)) or bool(self._extract_img_urls(payload))
+            else:
+                args = self._build_publish_arguments(platform, acc["id"], payload)
+                has_media = bool(args.get("videoUrl")) or bool(args.get("imgUrlList"))
             # Most platforms require at least one media input; skip if missing.
-            has_media = bool(args.get("videoUrl")) or bool(args.get("imgUrlList"))
             if not has_media and platform in {"tiktok", "youtube", "youtube_shorts", "instagram", "facebook", "threads", "pinterest", "douyin", "kwai", "bilibili"}:
                 results.append(
                     {
@@ -551,13 +884,17 @@ class AiToEarnClient:
                 channel_stats.setdefault(platform, {"success": 0, "failed": 0})["failed"] += 1
                 continue
             flow_id = self._extract_flow_id(call_text) or self._extract_flow_id_from_result(call_result)
+            task_publish_results: list[dict[str, Any]] = []
+            if use_channels_v2 and not call_result.get("isError"):
+                task_publish_results = self._maybe_publish_channel_tasks_now(call_result)
+
             status_payload: dict[str, Any] | None = None
             status_ok = True
             verification = "accepted_unverified"
 
             if flow_id:
                 for _ in range(max(1, poll_attempts)):
-                    status_call = self._mcp_call_tool("getPublishingTaskStatus", {"flowId": flow_id})
+                    status_call = self._mcp_call_tool(status_tool, {status_id_key: flow_id})
                     if not status_call.get("ok"):
                         status_ok = False
                         status_payload = {"error": status_call.get("error", "status_call_failed")}
@@ -592,6 +929,7 @@ class AiToEarnClient:
                     "status": status_payload,
                     "verification": verification,
                     "tool": tool_name,
+                    "task_publish": task_publish_results or None,
                 }
             )
             stats = channel_stats.setdefault(platform, {"success": 0, "failed": 0})
@@ -620,8 +958,8 @@ class AiToEarnClient:
                 "confirmed_count": confirmed_count,
                 "unverified_count": unverified_count,
                 "ready_count": len(results),
-                "uploader": "aitoearn_mcp_fanout",
-                "path": "mcp_primary",
+                "uploader": "aitoearn_channels_v2_fanout" if use_channels_v2 else "aitoearn_mcp_fanout",
+                "path": "mcp_channels_v2" if use_channels_v2 else "mcp_primary",
                 "channels": channel_stats,
                 "results": results,
             },
@@ -633,24 +971,55 @@ class AiToEarnClient:
         if self.config.transport != "mcp":
             return {"ok": False, "error": "accounts_listing_supported_in_mcp_only"}
 
-        call = self._mcp_call_tool("getAllAccounts", {})
-        if not call.get("ok"):
-            return call
-        text = self._mcp_result_text(call.get("result", {}))
-        accounts = self._parse_accounts_from_text(text)
+        cache_ttl = max(0, int(os.environ.get("AITOEARN_ACCOUNTS_CACHE_SEC", "300")))
+        cache_key = self._normalize_platform(platform or "") or "__all__"
+        now = time.time()
+        if (
+            cache_ttl > 0
+            and self._accounts_cache
+            and (now - self._accounts_cache_at) < cache_ttl
+            and cache_key in self._accounts_cache
+        ):
+            return dict(self._accounts_cache[cache_key])
+
+        accounts, source_tool, meta = self._collect_connected_accounts()
         if not accounts:
-            return {"ok": True, "status_code": call.get("status_code"), "result": {"count": 0, "accounts": []}, "url": call.get("url")}
+            payload = {
+                "ok": True,
+                "status_code": 200,
+                "result": {"count": 0, "accounts": []},
+                "url": self.config.mcp_url,
+                "warning": "no_connected_accounts_found",
+                "hint": (
+                    "No accounts returned from AiToEarn MCP. For self-hosted (localhost:9080), "
+                    "open the AiToEarn UI → connect social accounts → Settings → API Key → "
+                    "associate accounts with your key. Cloud keys do not work on local AiToEarn."
+                ),
+                "meta": meta,
+            }
+            if cache_ttl > 0:
+                if not self._accounts_cache:
+                    self._accounts_cache = {}
+                self._accounts_cache[cache_key] = payload
+                self._accounts_cache_at = now
+            return payload
 
         normalized = self._normalize_platform(platform or "")
         if normalized:
             accounts = [a for a in accounts if self._normalize_platform(a.get("type", "")) == normalized]
-        return {
+        payload = {
             "ok": True,
-            "status_code": call.get("status_code"),
+            "status_code": 200,
             "result": {"count": len(accounts), "accounts": accounts},
-            "url": call.get("url"),
-            "tool": "getAllAccounts",
+            "url": self.config.mcp_url,
+            "tool": source_tool or "unknown",
         }
+        if cache_ttl > 0:
+            if not self._accounts_cache:
+                self._accounts_cache = {}
+            self._accounts_cache[cache_key] = payload
+            self._accounts_cache_at = now
+        return payload
 
     def get_publishing_task_status(self, flow_id: str) -> dict[str, Any]:
         if self.config.transport != "mcp":
@@ -658,7 +1027,8 @@ class AiToEarnClient:
         flow_id = str(flow_id or "").strip()
         if not flow_id:
             return {"ok": False, "error": "flow_id_required"}
-        call = self._mcp_call_tool("getPublishingTaskStatus", {"flowId": flow_id})
+        status_tool, status_id_key = self._publish_status_tool()
+        call = self._mcp_call_tool(status_tool, {status_id_key: flow_id})
         if not call.get("ok"):
             return call
         text = self._mcp_result_text(call.get("result", {}))
@@ -675,7 +1045,7 @@ class AiToEarnClient:
                 "raw_text": text,
             },
             "url": call.get("url"),
-            "tool": "getPublishingTaskStatus",
+            "tool": status_tool,
         }
 
     def get_publish_restrictions(self, platforms: list[str]) -> dict[str, Any]:

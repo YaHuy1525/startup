@@ -33,6 +33,8 @@ if not os.environ.get("DISPLAY"):
     except FileNotFoundError:
         pass  # Xvfb not available, fall back to headless
 from yt_dlp import YoutubeDL
+
+from scripts.utils.ytdlp_config import build_ytdlp_opts
 from scripts.utils import database as db
 from scripts.utils.logger import setup_logger
 from scripts.upload_tiktok import do_tiktok_upload_v2
@@ -162,12 +164,11 @@ def record_upload(video_id: str, title: str, account: dict, result: dict):
 
 def download_video(url: str, output_dir: str) -> tuple[str | None, dict | None]:
     """Download video, return (file_path, info_dict)."""
-    ydl_opts = {
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "outtmpl": os.path.join(output_dir, "%(id)s.%(ext)s"),
-        "quiet": False,
-        "merge_output_format": "mp4",
-    }
+    ydl_opts = build_ytdlp_opts(
+        outtmpl=os.path.join(output_dir, "%(id)s.%(ext)s"),
+        quiet=False,
+        no_warnings=False,
+    )
     try:
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)

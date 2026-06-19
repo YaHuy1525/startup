@@ -3,7 +3,7 @@
  * render-video.ts — CLI entry point for the Remotion manga video renderer.
  *
  * Called by the manga-agents server or directly from the command line.
- * Reads a JSON props file and renders a MangaRecap video to disk.
+ * Reads a JSON props file and renders a Remotion composition to disk.
  *
  * Usage:
  *   npx tsx src/render-video.ts --props ./props.json --output ./out/video.mp4
@@ -20,7 +20,8 @@
  *     "chapterText": "Chapter 1100",
  *     "audioSrc": "/data/music/dramatic.mp3" | null,
  *     "audioDuckingVolume": 0.4,
- *     "templateId": 1 (optional - overrides CLI flag)
+ *     "templateId": 1 (optional - overrides CLI flag),
+ *     ...or any composition-specific props for BrainrotFeed/CharacterEdit/ChapterRecap
  *   }
  *
  * Output: JSON written to stdout with { filePath, durationSecs, fileSizeMb }
@@ -160,6 +161,7 @@ function getArg(flag: string): string | undefined {
 const propsFile = getArg("--props");
 const propsJson = getArg("--props-json");
 const outputPath = getArg("--output") || "./out/manga_video.mp4";
+const compositionId = getArg("--composition") || "MangaRecap";
 const templateIdArg = getArg("--template-id");
 const randomTemplate = args.includes("--random-template");
 
@@ -186,36 +188,35 @@ try {
 // ─── Load and Apply Video Template ───────────────────────────────────────────
 async function main() {
     let template: VideoTemplate | null = null;
+    const isProductPromo = compositionId === "ProductPromo";
 
-    // Determine which template to use (priority: props.templateId > CLI --template-id > --random-template)
-    const propsTemplateId = (props as any).templateId;
-    
-    if (propsTemplateId) {
-        console.error(`[render-video] Loading template from props: ${propsTemplateId}`);
-        template = await loadTemplate(propsTemplateId);
-    } else if (templateIdArg) {
-        const templateId = parseInt(templateIdArg, 10);
-        if (isNaN(templateId)) {
-            console.error(`Invalid template ID: ${templateIdArg}`);
-            await db.end();
-            process.exit(1);
+    if (!isProductPromo) {
+        const propsTemplateId = (props as any).templateId;
+
+        if (propsTemplateId) {
+            console.error(`[render-video] Loading template from props: ${propsTemplateId}`);
+            template = await loadTemplate(propsTemplateId);
+        } else if (templateIdArg) {
+            const templateId = parseInt(templateIdArg, 10);
+            if (isNaN(templateId)) {
+                console.error(`Invalid template ID: ${templateIdArg}`);
+                await db.end();
+                process.exit(1);
+            }
+            console.error(`[render-video] Loading template: ${templateId}`);
+            template = await loadTemplate(templateId);
+        } else if (randomTemplate) {
+            console.error(`[render-video] Loading random template`);
+            template = await loadRandomTemplate();
         }
-        console.error(`[render-video] Loading template: ${templateId}`);
-        template = await loadTemplate(templateId);
-    } else if (randomTemplate) {
-        console.error(`[render-video] Loading random template`);
-        template = await loadRandomTemplate();
-    }
 
-    // Apply template if loaded
-    if (template) {
-        console.error(`[render-video] Applying template: ${template.name} (${template.type})`);
-        props = applyTemplateToProps(props, template);
-        
-        // Update usage count
-        await updateTemplateUsageCount(template.id);
-    } else if (propsTemplateId || templateIdArg || randomTemplate) {
-        console.error(`[render-video] Warning: Template not found, using default settings`);
+        if (template) {
+            console.error(`[render-video] Applying template: ${template.name} (${template.type})`);
+            props = applyTemplateToProps(props, template);
+            await updateTemplateUsageCount(template.id);
+        } else if (propsTemplateId || templateIdArg || randomTemplate) {
+            console.error(`[render-video] Warning: Template not found, using default settings`);
+        }
     }
 
     // ─── Write Temp Props File (Remotion CLI requires a file) ────────────────────
@@ -238,7 +239,7 @@ async function main() {
         "remotion",
         "render",
         entryPoint,
-        "MangaRecap",
+        compositionId,
         resolvedOutput,
         `--props=${tempPropsPath}`,
         "--codec=h264",
@@ -246,7 +247,7 @@ async function main() {
         "--log=error",
     ].join(" ");
 
-    console.error(`[render-video] Rendering to ${resolvedOutput}...`);
+    console.error(`[render-video] Rendering ${compositionId} to ${resolvedOutput}...`);
 
     try {
         execSync(renderCmd, {
@@ -280,14 +281,40 @@ async function main() {
         );
         durationSecs = Math.round(parseFloat(ffprobeOut.trim()) * 100) / 100;
     } catch {
-        // Estimate from panel data
-        const panels = (props as any).panels || [];
-        const totalFrames = panels.reduce(
-            (s: number, p: any) => s + (p.durationInFrames || 240),
-            0
-        );
-        const transitionOverlap = Math.max(0, panels.length - 1) * 15;
-        durationSecs = Math.round(((totalFrames - transitionOverlap) / 30) * 100) / 100;
+        if (isProductPromo) {
+            const featureCount = ((props as any).features || []).length;
+            const intro = 5 * 30;
+            const features = featureCount * 12 * 30;
+            const cta = 8 * 30;
+            durationSecs = Math.round((Math.max(60 * 30, intro + features + cta) / 30) * 100) / 100;
+        } else if (compositionId === "BrainrotFeed") {
+            const panelFrames = Number((props as any).panelDurationInFrames || 240);
+            durationSecs = Math.round((Math.max(60, panelFrames) / 30) * 100) / 100;
+        } else if (compositionId === "CharacterEdit") {
+            const panels = (props as any).panels || [];
+            const perPanel = Number((props as any).panelDurationFrames || 60);
+            const totalFrames = Math.max(15 * 30, panels.length * perPanel);
+            durationSecs = Math.round((totalFrames / 30) * 100) / 100;
+        } else if (compositionId === "ChapterRecap") {
+            const panels = (props as any).panels || [];
+            const intro = Number((props as any).introDurationFrames || 60);
+            const outro = Number((props as any).outroDurationFrames || 60);
+            const bodyFrames = panels.reduce(
+                (s: number, p: any) => s + Number(p.durationInFrames || 180),
+                0
+            ) - Math.max(0, panels.length - 1) * 15;
+            const totalFrames = Math.max(60 * 30, intro + bodyFrames + outro);
+            durationSecs = Math.round((totalFrames / 30) * 100) / 100;
+        } else {
+            const panels = (props as any).panels || [];
+            const totalFrames = panels.reduce(
+                (s: number, p: any) => s + Number(p.durationInFrames || 240),
+                0
+            );
+            const transitionOverlap = Math.max(0, panels.length - 1) * 15;
+            const fallbackFrames = Math.max(60 * 30, totalFrames - transitionOverlap);
+            durationSecs = Math.round((fallbackFrames / 30) * 100) / 100;
+        }
     }
 
     // ─── Output Result ───────────────────────────────────────────────────────────

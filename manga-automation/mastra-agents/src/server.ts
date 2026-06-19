@@ -21,10 +21,15 @@ import cors from 'cors';
 import { generateGigDraft } from './agents/gigDraftGenerator';
 import { scoreGigDraft } from './agents/gigRubricScorer';
 import { generateMangaScript } from './agents/scriptwriter';
+import { createProductPromo, productPromoPropsSchema } from './agents/productPromoAgent';
+import { isQwenPawBackend, qwenpawAgents, qwenpawChat, qwenpawStatus } from './qwenpaw';
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+const VIDEOS_DIR = process.env.VIDEOS_DIR || '/data/videos';
+const REMOTION_DIR = path.join(__dirname, '../remotion-renderer');
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
 app.get('/health', async (_req: Request, res: Response) => {
@@ -885,8 +890,6 @@ app.get('/hashtags/select', async (req: Request, res: Response) => {
 
 // ─── Video Rendering via Remotion ─────────────────────────────────────────────
 
-const VIDEOS_DIR = process.env.VIDEOS_DIR || '/data/videos';
-const REMOTION_DIR = path.join(__dirname, '../remotion-renderer');
 const PANEL_DURATION_FRAMES = 240; // 8 seconds at 30fps
 
 /**
@@ -1107,6 +1110,116 @@ app.post('/pipeline/render-video', async (req: Request, res: Response) => {
             }
         }
 
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/** POST /pipeline/render-video-custom
+ * Render any Remotion composition with explicit props.
+ * Body: {
+ *   compositionId: "MangaRecap" | "BrainrotFeed" | "CharacterEdit" | "ChapterRecap",
+ *   props: object,
+ *   filename?: string,
+ *   outputPath?: string
+ * }
+ */
+app.post('/pipeline/render-video-custom', async (req: Request, res: Response) => {
+    const {
+        compositionId = 'MangaRecap',
+        props,
+        filename,
+        outputPath,
+    } = req.body || {};
+
+    if (!props || typeof props !== 'object') {
+        return res.status(400).json({ success: false, error: 'props object is required' });
+    }
+
+    const allowed = new Set(['MangaRecap', 'BrainrotFeed', 'CharacterEdit', 'ChapterRecap', 'ProductPromo']);
+    if (!allowed.has(String(compositionId))) {
+        return res.status(400).json({
+            success: false,
+            error: `Unsupported compositionId: ${compositionId}`,
+        });
+    }
+
+    try {
+        fs.mkdirSync(VIDEOS_DIR, { recursive: true });
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const safeName = String(filename || `${compositionId}_${timestamp}.mp4`).replace(/[^a-zA-Z0-9._-]/g, '_');
+        const resolvedOutputPath = outputPath
+            ? path.resolve(String(outputPath))
+            : path.join(VIDEOS_DIR, safeName);
+
+        const propsPath = path.join(REMOTION_DIR, `.render-custom-${Date.now()}.json`);
+        fs.writeFileSync(propsPath, JSON.stringify(props, null, 2));
+
+        const renderCmd = `npx tsx src/render-video.ts --props "${propsPath}" --output "${resolvedOutputPath}" --composition "${compositionId}"`;
+        const renderOutput = execSync(renderCmd, {
+            cwd: REMOTION_DIR,
+            encoding: 'utf-8',
+            timeout: 10 * 60 * 1000,
+            maxBuffer: 50 * 1024 * 1024,
+        });
+
+        try { fs.unlinkSync(propsPath); } catch { }
+
+        const lines = renderOutput.trim().split('\n');
+        const lastLine = lines[lines.length - 1];
+        const renderResult = JSON.parse(lastLine);
+
+        res.json({
+            success: true,
+            compositionId,
+            filePath: renderResult.filePath,
+            durationSecs: renderResult.durationSecs,
+            fileSizeMb: renderResult.fileSizeMb,
+            template: renderResult.template || null,
+        });
+    } catch (err: any) {
+        logger.error('render-video-custom failed', { error: err.message, stderr: err.stderr });
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/** POST /agents/product-promo
+ * Generates and optionally renders a product promotion video via Remotion ProductPromo composition.
+ * Body: { prompt: string, render?: boolean, filename?: string }
+ */
+app.post('/agents/product-promo', async (req: Request, res: Response) => {
+    const { prompt, render = true, filename, props: propsOverride } = req.body;
+    if (!prompt && !propsOverride) {
+        return res.status(400).json({ error: 'prompt (string) or props (object) is required' });
+    }
+
+    logger.info('Agent: product-promo triggered', {
+        prompt: typeof prompt === 'string' ? prompt.slice(0, 120) : '(props only)',
+        render,
+    });
+    try {
+        let validatedProps;
+        if (propsOverride) {
+            validatedProps = productPromoPropsSchema.parse(propsOverride);
+        }
+
+        const result = await createProductPromo(prompt || 'Product promotion', {
+            remotionDir: REMOTION_DIR,
+            outputDir: VIDEOS_DIR,
+            render: Boolean(render),
+            filename,
+            props: validatedProps,
+        });
+
+        res.json({
+            success: true,
+            composition: result.composition,
+            props: result.props,
+            filePath: result.filePath ?? null,
+            durationSecs: result.durationSecs ?? null,
+            fileSizeMb: result.fileSizeMb ?? null,
+        });
+    } catch (err: any) {
+        logger.error('product-promo failed', { error: err.message });
         res.status(500).json({ success: false, error: err.message });
     }
 });
@@ -1462,7 +1575,20 @@ app.get('/publish/accounts', async (req: Request, res: Response) => {
     try {
         const platform = (req.query.platform as string) || undefined;
         const result = await callWorker('/aitoearn/accounts', platform ? { platform } : {});
-        res.json(result);
+        const workerBody = (result?.result ?? {}) as Record<string, unknown>;
+        const inner = (workerBody?.result ?? workerBody) as Record<string, unknown>;
+        const accounts = Array.isArray(inner?.accounts) ? inner.accounts : [];
+        const count = typeof inner?.count === 'number' ? inner.count : accounts.length;
+        res.json({
+            success: result?.success !== false && workerBody?.ok !== false,
+            accounts,
+            count,
+            tool: workerBody?.tool,
+            warning: workerBody?.warning,
+            hint: workerBody?.hint,
+            meta: workerBody?.meta,
+            result,
+        });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1490,47 +1616,102 @@ app.get('/publish/status', async (req: Request, res: Response) => {
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── Agent control (Hermes pipelines) ─────────────────────────────────────────
+// ─── Agent control (QwenPaw or Hermes pipelines) ───────────────────────────────
 
 /** POST /agent/prompt
- * Natural-language order. If a source URL is included -> link-publish, else discover-publish.
- * Body: { prompt, source_url?, channels?, selected_accounts?, account_ids?, title?, desc?, hashtags? }
+ * Natural-language order routed to QwenPaw (default) or Hermes fallback.
+ * Body: { prompt, agent_id?, source_url?, channels?, selected_accounts?, ... }
  */
 app.post('/agent/prompt', async (req: Request, res: Response) => {
     const { prompt, source_url } = req.body || {};
     if (!prompt && !source_url) {
         return res.status(400).json({ error: 'prompt or source_url is required' });
     }
+
+    if (isQwenPawBackend()) {
+        try {
+            const result = await qwenpawChat(req.body || {});
+            res.json(result);
+        } catch (err: any) {
+            res.status(500).json({ error: err.message, backend: 'qwenpaw' });
+        }
+        return;
+    }
+
     const hasUrl = !!source_url || /https?:\/\//i.test(String(prompt || ''));
     const route = hasUrl ? '/hermes/link-publish' : '/hermes/discover-publish';
     const body = { objective: prompt, prompt, ...req.body };
     try {
         const result = await callWorker(route, body);
-        res.json({ route, ...result });
+        res.json({ route, backend: 'hermes', ...result });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-/** GET /agent/status — Hermes snapshot of pipeline health. */
+/** GET /agent/status — QwenPaw or Hermes pipeline health snapshot. */
 app.get('/agent/status', async (_req: Request, res: Response) => {
     try {
+        if (isQwenPawBackend()) {
+            const result = await qwenpawStatus();
+            return res.json(result);
+        }
         const result = await callWorker('/hermes/status', {});
-        res.json(result);
+        res.json({ backend: 'hermes', ...result });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-/** GET /agent/logs?lines=200 — tail the Hermes log file. */
+/** GET /agent/logs?lines=200 — tail agent logs (Hermes file or QwenPaw placeholder). */
 app.get('/agent/logs', async (req: Request, res: Response) => {
     const lines = Number(req.query.lines) || 200;
     try {
+        if (isQwenPawBackend()) {
+            const status = await qwenpawStatus();
+            const content = [
+                `QwenPaw backend — ${status.console_url || 'unknown'}`,
+                `Agents: ${status.agent_count ?? 0}`,
+                `AiToEarn: ${status.aitoearn_ok ? 'ok' : 'check config'}`,
+                '',
+                'Open QwenPaw Console at http://localhost:8088 for full chat logs.',
+            ].join('\n');
+            return res.json({ backend: 'qwenpaw', result: { content: content.slice(0, lines * 80) } });
+        }
         const result = await callWorker('/hermes/log-tail', { lines });
-        res.json(result);
+        res.json({ backend: 'hermes', ...result });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-/** POST /agent/pipeline/:name — run a named Hermes pipeline.
- * name: finance | viral | link-publish | discover-publish | full-ops
- */
+/** GET /agent/agents — list QwenPaw agents for dashboard picker. */
+app.get('/agent/agents', async (_req: Request, res: Response) => {
+    try {
+        if (isQwenPawBackend()) {
+            const result = await qwenpawAgents();
+            return res.json(result);
+        }
+        res.json({
+            agents: [{ id: 'hermes', name: 'Hermes Pipeline Agent' }],
+            backend: 'hermes',
+        });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /agent/pipeline/:name — run a named pipeline (Hermes) or QwenPaw chat task. */
 app.post('/agent/pipeline/:name', async (req: Request, res: Response) => {
+    const name = req.params.name;
+    if (isQwenPawBackend()) {
+        const prompts: Record<string, string> = {
+            finance: 'Run the finance pipeline: earnings proof → AI video → publish via AiToEarn.',
+            viral: 'Run the viral pipeline: discover trends → brief → video → publish.',
+            'link-publish': `Publish from link: ${req.body?.source_url || req.body?.video_url || 'use provided URL'}`,
+            'discover-publish': `Discover and publish: ${req.body?.objective || req.body?.prompt || ''}`,
+            'full-ops': 'Run full arbitrage ops: trends → source → publish → engage → report.',
+        };
+        const prompt = prompts[name] || `Run pipeline: ${name}`;
+        try {
+            const result = await qwenpawChat({ ...req.body, prompt, agent_id: 'pipeline-manager' });
+            res.json({ pipeline: name, ...result });
+        } catch (err: any) { res.status(500).json({ error: err.message }); }
+        return;
+    }
+
     const map: Record<string, string> = {
         finance: '/hermes/finance-pipeline',
         viral: '/hermes/viral-pipeline',
@@ -1683,7 +1864,7 @@ async function start() {
     await connectDatabases();
     app.listen(PORT, () => {
         logger.info(`Manga Agents server running on port ${PORT}`);
-        logger.info('Agents: POST /agents/detect-trends | /agents/select-panels | /agents/select-music | /agents/generate-caption | /agents/optimize | /agents/detect-shadow-ban');
+        logger.info('Agents: POST /agents/detect-trends | /agents/select-panels | /agents/select-music | /agents/generate-caption | /agents/optimize | /agents/detect-shadow-ban | /agents/product-promo');
         logger.info('Pipeline: POST /pipeline/fetch-chapters | /pipeline/mark-published | GET /pipeline/pending-chapters | /pipeline/ready-videos | /pipeline/shadow-banned-accounts');
     });
 }

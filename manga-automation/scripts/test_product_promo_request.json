@@ -1,0 +1,27 @@
+{
+  "prompt": "Create a 60-second NVIDIA RTX promotion for AI video creators",
+  "render": true,
+  "filename": "docker-nvidia-promo-test.mp4",
+  "props": {
+    "productName": "NVIDIA RTX",
+    "tagline": "Powering the next generation of AI creators",
+    "brandColor": "#76b900",
+    "accentColor": "#0a0a0a",
+    "features": [
+      {
+        "headline": "Render at the speed of thought",
+        "subtext": "RTX-class GPUs crush export times so you ship videos faster"
+      },
+      {
+        "headline": "AI workflows, studio-grade output",
+        "subtext": "From generative effects to real-time previews — built for creators"
+      },
+      {
+        "headline": "Scale from clip to campaign",
+        "subtext": "One pipeline. Consistent quality. Ready for TikTok and beyond"
+      }
+    ],
+    "ctaText": "Upgrade your stack at nvidia.com/rtx",
+    "audioSrc": null
+  }
+}

@@ -108,6 +108,8 @@ import scripts.rpa.playwright_rpa_boilerplate as rpa_pw
 import scripts.longform_video_boilerplate as longform_video
 import scripts.marketplace_listings_boilerplate as marketplace_listings
 import scripts.hermes_agent as hermes_agent
+import scripts.qwenpaw_client as qwenpaw_client
+import scripts.qwenpaw_skill_runner as qwenpaw_skill_runner
 import scripts.earnings_proof_ingest as earnings_ingest
 import scripts.finance_video_generator as finance_video
 import scripts.finance_video_ai as finance_video_ai
@@ -832,6 +834,10 @@ ROUTES = {
     # POST /hermes/discover-publish { objective, channels?, ... }
     # Pipeline: discover matching YouTube short from objective -> verify -> publish fanout
     "/hermes/discover-publish": lambda body: hermes_agent.run_discover_publish_pipeline(body),
+    # ── QwenPaw control plane ───────────────────────────────────────────────────
+    "/qwenpaw/chat": lambda body: qwenpaw_client.chat(body),
+    "/qwenpaw/status": lambda body: qwenpaw_client.status(),
+    "/qwenpaw/agents": lambda body: {"success": True, "agents": qwenpaw_client.list_agents()},
 }
 
 
@@ -867,6 +873,17 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         handler = ROUTES.get(self.path)
+        if not handler and self.path.startswith("/qwenpaw/skill/"):
+            skill_name = self.path.rsplit("/", 1)[-1]
+            try:
+                result = qwenpaw_skill_runner.run_skill_sync(skill_name, body)
+                envelope_ok = result.get("success") is not False
+                self.send_json(200, {"success": envelope_ok, "result": result})
+            except Exception as e:
+                logger.error(f"Error in {self.path}: {e}\n{traceback.format_exc()}")
+                self.send_json(500, {"success": False, "error": str(e)})
+            return
+
         if not handler:
             self.send_json(404, {"error": f"unknown route {self.path}"})
             return
@@ -887,7 +904,7 @@ class Handler(BaseHTTPRequestHandler):
                         result.get("ok") is not False
                         and result.get("success") is not False
                     )
-                elif self.path.startswith("/hermes/"):
+                elif self.path.startswith("/hermes/") or self.path.startswith("/qwenpaw/"):
                     envelope_ok = result.get("success") is not False
                 elif self.path == "/arbitrage/distribute":
                     proc = result.get("processed") or 0

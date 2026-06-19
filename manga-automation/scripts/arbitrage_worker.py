@@ -13,6 +13,7 @@ load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from scripts.utils import database as db
 from scripts.utils.logger import setup_logger
+from scripts.utils.ytdlp_config import build_ytdlp_opts
 
 logger = setup_logger("arbitrage_worker")
 
@@ -39,13 +40,7 @@ def download_asset(asset: dict) -> dict:
         size_mb = os.path.getsize(output_path) / (1024 * 1024)
         return {"local_path": output_path, "file_size_mb": round(size_mb, 2), "status": "downloaded"}
 
-    ydl_opts = {
-        "format": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "outtmpl": output_path,
-        "merge_output_format": "mp4",
-        "quiet": True,
-        "no_warnings": True,
-    }
+    ydl_opts = build_ytdlp_opts(outtmpl=output_path)
 
     logger.info(f"Downloading asset {asset['id']}: {asset['youtube_url']}")
     try:

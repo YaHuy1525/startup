@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from scripts.utils import database as db
 from scripts.utils.logger import setup_logger
+from scripts.utils.ytdlp_config import build_ytdlp_opts, get_ytdlp_format
 
 logger = setup_logger("youtube_download_ingest")
 
@@ -293,7 +294,7 @@ def download_youtube_to_file(url: str, output_path: str) -> dict[str, Any]:
         size_mb = os.path.getsize(output_path) / (1024 * 1024)
         probe_info: dict[str, Any] = {}
         try:
-            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "format": "best[ext=mp4]/best"}) as ydl:
+            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "format": get_ytdlp_format()}) as ydl:
                 probe_info = ydl.extract_info(url, download=False) or {}
         except Exception:
             probe_info = {}
@@ -306,13 +307,7 @@ def download_youtube_to_file(url: str, output_path: str) -> dict[str, Any]:
             "thumbnail_url": _extract_thumbnail_url(probe_info),
         }
 
-    ydl_opts = {
-        "format": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "outtmpl": outtmpl,
-        "merge_output_format": "mp4",
-        "quiet": True,
-        "no_warnings": True,
-    }
+    ydl_opts = build_ytdlp_opts(outtmpl=outtmpl)
 
     logger.info(f"Downloading {url} -> {output_path}")
     try:
