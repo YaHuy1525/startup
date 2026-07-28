@@ -3,13 +3,20 @@ venv/
 __pycache__/
 graphify-out/
 .env
-data/panels/
-data/videos/
-data/logs/
-data/n8n/
-data/redis/
-data/postgres/
+.env.*
+!.env.example
+
+# All runtime data (media, DB volumes, generated assets)
+data/
+!data/music/README.md
+
 *.log
+debug-*.log
 node_modules/
 dist/
 .n8n/
+
+# Rendered Remotion outputs
+remotion-renderer/*.mp4
+remotion-renderer/out/
+*.mp4

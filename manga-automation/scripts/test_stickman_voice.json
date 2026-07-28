@@ -1,0 +1,10 @@
+{
+  "script": "You sit down to code. You open your laptop. Then you check your phone. Three hours later, you still have not written a single line.",
+  "voice": true,
+  "voice_id": "UgBBYS2sOqTuMpoF3BR0",
+  "optimize_audio": true,
+  "plan": true,
+  "render": false,
+  "max_scenes": 8,
+  "title": "Why Developers Procrastinate"
+}

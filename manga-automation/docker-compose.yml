@@ -55,6 +55,7 @@ services:
       MAL_CLIENT_ID: ${MAL_CLIENT_ID:-}
       PANELS_DIR: /data/panels
       VIDEOS_DIR: /data/videos
+      SHORTFORM_ROOT: /short-form-pipeline
       NODE_ENV: production
       PORT: 3001
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -68,6 +69,7 @@ services:
       - ./data/panels:/data/panels
       - ./data/videos:/data/videos
       - ./data/logs:/data/logs
+      - ../short-form-pipeline:/short-form-pipeline
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,6 +85,27 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  # ─── Short-form Remotion render (Linux node_modules + Chrome; shared out/public) ─
+  shortform-render:
+    build:
+      context: ../short-form-pipeline
+      dockerfile: Dockerfile.render
+    restart: unless-stopped
+    networks: [ manga-net ]
+    environment:
+      PORT: 3333
+    ports:
+      - "3333:3333"
+    volumes:
+      - ../short-form-pipeline/out:/short-form-pipeline/out
+      - ../short-form-pipeline/public:/short-form-pipeline/public
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:3333/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # ─── Python Worker (FFmpeg + Playwright + CrewAI + Engage + Monetize) ──────────
   python-worker:
@@ -149,6 +172,36 @@ services:
       OBSIDIAN_VAULT_PATH: /data/obsidian-vault
       REFERRAL_HUB_URL: ${REFERRAL_HUB_URL:-https://your-domain.com/links}
       EARNINGS_SCREENSHOTS_DIR: /data/earnings_screenshots
+      STICKMAN_ASSETS_DIR: ${STICKMAN_ASSETS_DIR:-/data/videos/stickman-assets}
+      STICKMAN_OUTPUT_DIR: ${STICKMAN_OUTPUT_DIR:-/data/videos}
+      STICKMAN_PANEL_LIBRARY_DIR: ${STICKMAN_PANEL_LIBRARY_DIR:-/data/videos/stickman-panel-library}
+      STICKMAN_PANEL_QUALITY: ${STICKMAN_PANEL_QUALITY:-premium}
+      STICKMAN_IMAGE_PROVIDER: ${STICKMAN_IMAGE_PROVIDER:-auto}
+      STICKMAN_IMAGE_MODEL: ${STICKMAN_IMAGE_MODEL:-nano-banana-2}
+      STICKMAN_IMAGE_ASPECT: ${STICKMAN_IMAGE_ASPECT:-1:1}
+      STICKMAN_IMAGE_RESOLUTION: ${STICKMAN_IMAGE_RESOLUTION:-1K}
+      KIA_API_KEY: ${KIA_API_KEY:-}
+      KIE_API_KEY: ${KIE_API_KEY:-}
+      KIE_API_BASE: ${KIE_API_BASE:-https://api.kie.ai}
+      # AI Frame Sequencing — Kie image-to-video clips
+      STICKMAN_ANIMATE_PROVIDER: ${STICKMAN_ANIMATE_PROVIDER:-none}
+      STICKMAN_VIDEO_MODEL: ${STICKMAN_VIDEO_MODEL:-grok-imagine/image-to-video}
+      STICKMAN_VIDEO_RESOLUTION: ${STICKMAN_VIDEO_RESOLUTION:-720p}
+      STICKMAN_VIDEO_CLIP_SECS: ${STICKMAN_VIDEO_CLIP_SECS:-6}
+      # Voiceover — auto falls back to Kie ElevenLabs when direct TTS has no credits
+      STICKMAN_VOICE_PROVIDER: ${STICKMAN_VOICE_PROVIDER:-auto}
+      KIE_TTS_MODEL: ${KIE_TTS_MODEL:-elevenlabs/text-to-speech-turbo-2-5}
+      KIE_TTS_VOICE: ${KIE_TTS_VOICE:-}
+      # Short-form Reddit → meme pipeline (sibling repo mount)
+      SHORTFORM_ROOT: /short-form-pipeline
+      FOOTAGE_AGENTIC: ${FOOTAGE_AGENTIC:-true}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GIPHY_API_KEY: ${GIPHY_API_KEY:-}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      OPENAI_TTS_VOICE: ${OPENAI_TTS_VOICE:-onyx}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      # Remotion render via Linux container (Windows host node_modules cannot run in worker)
+      SHORTFORM_RENDER_URL: ${SHORTFORM_RENDER_URL:-http://shortform-render:3333/render}
       # AiToEarn URLs come from env_file (.env) — use host.docker.internal there, not localhost.
     ports:
       # Host 18080 — avoids conflict with Apache/EDB PEM or AiToEarn on 8080/9080
@@ -159,9 +212,11 @@ services:
       - ./data/music:/data/music:ro
       - ./data/logs:/data/logs
       - ./data/arbitrage_videos:/data/arbitrage_videos
+      - ./data/video_templates:/data/video_templates
       # Debug NDJSON (session 0f0c72) — same path as worker resolves via /app/debug-0f0c72.log
       - ../debug-0f0c72.log:/app/debug-0f0c72.log
       - ./scripts:/app/scripts:ro
+      - ../short-form-pipeline:/short-form-pipeline
       - ../TiktokAutoUploader:/TiktokAutoUploader:ro
       - ../TiktokUploader:/TiktokUploader
       - ./data/obsidian-vault:/data/obsidian-vault
@@ -170,6 +225,8 @@ services:
       postgres:
         condition: service_healthy
       chromadb:
+        condition: service_healthy
+      shortform-render:
         condition: service_healthy
 
   # ─── Telegram Control Bot ─────────────────────────────────────────────────────

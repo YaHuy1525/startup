@@ -1,0 +1,889 @@
+{
+  "version": 1,
+  "updated_at": "2026-07-01T06:28:17Z",
+  "sources": [
+    "https://www.remotion.dev/docs/resources",
+    "https://github.com/kapishdima/remocn",
+    "https://github.com/av/remotion-bits",
+    "https://github.com/degueba/onda",
+    "https://github.com/reactvideoeditor/clippkit"
+  ],
+  "templates": [
+    {
+      "id": "remocn",
+      "name": "Remocn",
+      "category": "component-registry",
+      "style_tags": [
+        "product-demo",
+        "saas",
+        "kinetic-text",
+        "transitions",
+        "ui-mockup"
+      ],
+      "description": "shadcn-style registry of Remotion animations, wipes, kinetic text, and full compositions (product launch trailer, terminal deploy).",
+      "url": "https://remocn.dev",
+      "repo": "kapishdima/remocn",
+      "install": "npx shadcn@latest add @remocn/blur-reveal",
+      "agent_install_hint": "Copy components into remotion-renderer/src/components/remocn/",
+      "our_compositions": [
+        "ProductPromo",
+        "StickFigureStory"
+      ],
+      "our_components": [
+        "blur-reveal",
+        "typewriter",
+        "directional-wipe"
+      ],
+      "best_for": [
+        "product promos",
+        "changelog bites",
+        "landing page demos"
+      ],
+      "license": "MIT (open core)",
+      "github": {
+        "stars": 776,
+        "forks": 41,
+        "description": "Production-ready animations, transitions, backgrounds, and scenes for Remotion",
+        "homepage": "https://remocn.dev",
+        "topics": [],
+        "license": "MIT",
+        "pushed_at": "2026-07-01T06:08:06Z",
+        "open_issues": 0
+      }
+    },
+    {
+      "id": "remotion-bits",
+      "name": "Remotion Bits",
+      "category": "component-library",
+      "style_tags": [
+        "text-animation",
+        "particles",
+        "gradients",
+        "charts",
+        "3d"
+      ],
+      "description": "npm package + jsrepo registry of animated Remotion blocks. Has MCP/CLI for agent discovery.",
+      "url": "https://remotion-bits.dev",
+      "repo": "av/remotion-bits",
+      "install": "npm install remotion-bits",
+      "agent_install_hint": "npx remotion-bits find \"text reveal\" --limit 5",
+      "our_compositions": [
+        "ProductPromo",
+        "MangaRecap"
+      ],
+      "our_components": [
+        "AnimatedText via remotion-bits"
+      ],
+      "best_for": [
+        "feature callouts",
+        "animated headlines",
+        "particle intros"
+      ],
+      "license": "MIT",
+      "github": {
+        "stars": 392,
+        "forks": 23,
+        "description": "Ready-made animated components for Remotion — charts, transitions, text reveals, and more",
+        "homepage": "https://remotion-bits.dev",
+        "topics": [
+          "animation",
+          "components",
+          "motion-graphics",
+          "react",
+          "remotion",
+          "remotion-video",
+          "typescript",
+          "video",
+          "video-editing"
+        ],
+        "license": null,
+        "pushed_at": "2026-03-11T21:53:27Z",
+        "open_issues": 0
+      }
+    },
+    {
+      "id": "onda",
+      "name": "Onda",
+      "category": "component-registry",
+      "style_tags": [
+        "motion-graphics",
+        "fade",
+        "transitions",
+        "design-system"
+      ],
+      "description": "70 Remotion components + 18 TransitionSeries transitions via ondajs CLI.",
+      "url": "https://onda.video",
+      "repo": "degueba/onda",
+      "install": "npx ondajs add fade-in",
+      "agent_install_hint": "Browse https://onda.video showcase; add via npx ondajs add <component>",
+      "our_compositions": [
+        "ProductPromo",
+        "ChapterRecap"
+      ],
+      "best_for": [
+        "polished motion graphics",
+        "scene transitions",
+        "brand videos"
+      ],
+      "license": "MIT",
+      "github": {
+        "stars": 6,
+        "forks": 1,
+        "description": "Open-source motion graphics components for Remotion — copy-paste, fully yours, beautifully animated. Build videos with code.",
+        "homepage": "https://onda.video",
+        "topics": [
+          "animation",
+          "design-system",
+          "developer-tools",
+          "motion-graphics",
+          "nextjs",
+          "react",
+          "remotion",
+          "shadcn-registry",
+          "typescript",
+          "video"
+        ],
+        "license": "MIT",
+        "pushed_at": "2026-06-29T20:36:40Z",
+        "open_issues": 4
+      }
+    },
+    {
+      "id": "clippkit",
+      "name": "Clippkit",
+      "category": "component-library",
+      "style_tags": [
+        "intros",
+        "split-screen",
+        "text-effects",
+        "scene-templates"
+      ],
+      "description": "Reusable Remotion scene templates, intros, loaders, and text animations from React Video Editor.",
+      "url": "https://www.clippkit.com",
+      "repo": "reactvideoeditor/clippkit",
+      "install": "npx shadcn add (see clippkit registry)",
+      "our_compositions": [
+        "BrainrotFeed",
+        "CharacterEdit"
+      ],
+      "best_for": [
+        "hero intros",
+        "split layouts",
+        "branded transitions"
+      ],
+      "license": "MIT",
+      "github": {
+        "stars": 62,
+        "forks": 6,
+        "description": "Clippkit is a growing collection of reusable components for people building videos with code. It's like a UI library, but instead of buttons and modals, you get intros, text effects, animations, transitions, and full video scenes.",
+        "homepage": "https://www.clippkit.com/",
+        "topics": [
+          "component-library",
+          "remotion",
+          "shadcn-ui",
+          "video",
+          "videoeditor-sdk"
+        ],
+        "license": "MIT",
+        "pushed_at": "2025-12-18T21:23:17Z",
+        "open_issues": 2
+      }
+    },
+    {
+      "id": "remotion-captions-themes",
+      "name": "Remotion Captions Themes",
+      "category": "captions",
+      "style_tags": [
+        "kinetic-typography",
+        "tiktok",
+        "shorts",
+        "karaoke",
+        "captions"
+      ],
+      "description": "Word-level caption themes: kinetic-01, hustle, karaoke, gaming-stream, soft-ai. Ideal for Shorts retention.",
+      "url": "https://github.com/vshukla7/remotion-captions-themes",
+      "repo": "vshukla7/remotion-captions-themes",
+      "install": "npm install remotion-captions-themes",
+      "our_compositions": [
+        "StickFigureStory",
+        "BrainrotFeed",
+        "ChapterRecap"
+      ],
+      "best_for": [
+        "stickman narration",
+        "talking-head shorts",
+        "subtitle-heavy videos"
+      ],
+      "license": "MIT",
+      "github": {
+        "stars": 1,
+        "forks": 0,
+        "description": "Themeable animated word-level caption library for Remotion — kinetic typography, karaoke highlights, and a relation-based layout engine.",
+        "homepage": "",
+        "topics": [
+          "captions",
+          "captions--generator",
+          "karaoke-captions",
+          "kinetic-typography",
+          "remotion",
+          "remotion-template",
+          "typography",
+          "video-editing",
+          "video-generation"
+        ],
+        "license": "MIT",
+        "pushed_at": "2026-06-23T08:34:07Z",
+        "open_issues": 0
+      }
+    },
+    {
+      "id": "remotion-ui",
+      "name": "Remotion UI",
+      "category": "component-library",
+      "style_tags": [
+        "lower-thirds",
+        "title-cards",
+        "broadcast"
+      ],
+      "description": "Production motion components with CLI, docs previews, and AI agent indexes.",
+      "url": "https://www.remotionui.com",
+      "repo": "rrh1441/remotion-ui",
+      "install": "npx remotion-ui init",
+      "agent_install_hint": "25+ components, 70+ assets, TitleCard/LowerThird/StatBlock via CLI",
+      "our_compositions": [
+        "ChapterRecap",
+        "ProductPromo"
+      ],
+      "best_for": [
+        "lower thirds",
+        "title cards",
+        "news-style overlays"
+      ],
+      "license": "MIT"
+    },
+    {
+      "id": "remotion-captioneer",
+      "name": "Remotion Captioneer",
+      "category": "captions",
+      "style_tags": ["captions", "stt", "whisper", "karaoke", "tiktok", "cli"],
+      "description": "Drop-in animated captions with 14 styles, 24 presets, built-in STT (Whisper/OpenAI/Groq/Deepgram/ElevenLabs), CLI: npx captioneer process.",
+      "url": "https://neutral-stage.github.io/remotion-captioneer/",
+      "repo": "neutral-Stage/remotion-captioneer",
+      "install": "npm install remotion-captioneer",
+      "agent_install_hint": "Pairs with @remotion/captions for page segmentation; use for auto-caption stickman shorts",
+      "our_compositions": ["StickFigureStory", "BrainrotFeed", "ChapterRecap"],
+      "best_for": ["auto captions from voiceover", "karaoke shorts", "batch caption pipelines"],
+      "license": "MIT"
+    },
+    {
+      "id": "remotion-captions-official",
+      "name": "@remotion/captions",
+      "category": "captions",
+      "style_tags": ["captions", "tiktok", "word-highlight", "official"],
+      "description": "Official Remotion caption utilities: Caption type, createTikTokStyleCaptions(), word token highlighting with spring/interpolate.",
+      "url": "https://www.remotion.dev/docs/captions/displaying",
+      "repo": "remotion-dev/remotion",
+      "install": "npm install @remotion/captions",
+      "our_compositions": ["StickFigureStory", "BrainrotFeed", "ChapterRecap"],
+      "best_for": ["custom caption animations", "foundation for caption libraries"],
+      "license": "Remotion license"
+    },
+    {
+      "id": "rendercomp",
+      "name": "RenderComp",
+      "category": "paid-marketplace",
+      "style_tags": ["templates", "kinetic-text", "charts", "mockups", "transitions"],
+      "description": "1,400+ commercial Remotion TypeScript components: kinetic type, UI mockups, charts, physics, transitions. Lifetime license via private GitHub repo.",
+      "url": "https://rendercomp.com",
+      "repo": null,
+      "install": "Purchase at rendercomp.com — private GitHub collaborator access",
+      "our_compositions": [],
+      "best_for": ["high-volume template variety", "client work", "when open-source isn't enough"],
+      "license": "Commercial (paid)"
+    },
+    {
+      "id": "swiftclip",
+      "name": "SwiftClip",
+      "category": "full-template",
+      "style_tags": [
+        "short-form",
+        "templates",
+        "batch"
+      ],
+      "description": "30 production-ready Remotion templates for rapid short-form output.",
+      "url": "https://www.remotion.dev/docs/resources",
+      "repo": null,
+      "install": "See Remotion resources — SwiftClip",
+      "our_compositions": [],
+      "best_for": [
+        "starting points for new compositions",
+        "shorts batches"
+      ],
+      "license": "check repo"
+    },
+    {
+      "id": "remotion-audiogram",
+      "name": "Remotion Audiogram",
+      "category": "full-template",
+      "style_tags": [
+        "podcast",
+        "audio-waveform",
+        "talking-head"
+      ],
+      "description": "Official Remotion audiogram template for podcast clips with waveform visualization.",
+      "url": "https://www.remotion.dev/templates/audiogram",
+      "repo": "remotion-dev/template-audiogram",
+      "install": "npx create-video@latest --audiogram",
+      "our_compositions": [],
+      "best_for": [
+        "podcast clips",
+        "voice-only content",
+        "Spotify-style promos"
+      ],
+      "license": "Remotion template",
+      "github": {
+        "stars": 262,
+        "forks": 51,
+        "description": "A template for making podcast video clips with Remotion.",
+        "homepage": "https://template-audiogram.vercel.app",
+        "topics": [],
+        "license": null,
+        "pushed_at": "2026-02-20T15:49:52Z",
+        "open_issues": 1
+      }
+    },
+    {
+      "id": "remotion-tts",
+      "name": "Remotion TTS Templates",
+      "category": "full-template",
+      "style_tags": [
+        "voiceover",
+        "tts",
+        "narration"
+      ],
+      "description": "Official text-to-speech templates (Azure/Google) with calculateMetadata for scene duration from audio.",
+      "url": "https://www.remotion.dev/docs/resources",
+      "repo": null,
+      "install": "npx create-video@latest (TTS template)",
+      "our_compositions": [
+        "StickFigureStory",
+        "ChapterRecap"
+      ],
+      "best_for": [
+        "narrated explainers",
+        "stickman voice sync",
+        "scene timing from audio"
+      ],
+      "license": "Remotion template"
+    },
+    {
+      "id": "ai-video-editor",
+      "name": "AI Video Editor (Remotion overlays)",
+      "category": "reference-architecture",
+      "style_tags": [
+        "nle",
+        "kinetic-captions",
+        "data-viz",
+        "lower-thirds"
+      ],
+      "description": "Open-source AI NLE with 20+ Remotion overlay components: kinetic captions, bar charts, lower thirds, code reveal.",
+      "url": "https://github.com/tjameswilliams/ai-video-editor",
+      "repo": "tjameswilliams/ai-video-editor",
+      "install": "Study overlay component catalog; copy patterns into compositions",
+      "our_compositions": [
+        "ProductPromo",
+        "StickFigureStory"
+      ],
+      "best_for": [
+        "caption styles",
+        "data viz overlays",
+        "agent-written custom components"
+      ],
+      "license": "check repo",
+      "github": {
+        "stars": 2,
+        "forks": 0,
+        "description": "An AI-powered non-linear video editor with multi-track timeline, intelligent editing assistant, and media generation",
+        "homepage": null,
+        "topics": [],
+        "license": null,
+        "pushed_at": "2026-04-22T18:11:21Z",
+        "open_issues": 0
+      }
+    },
+    {
+      "id": "kinetic-studio",
+      "name": "Kinetic Studio",
+      "category": "reference-architecture",
+      "style_tags": [
+        "kinetic-typography",
+        "text-to-video",
+        "word-by-word"
+      ],
+      "description": "Text-to-video kinetic typography with frame-by-frame word control. Good reference for stickman caption pacing.",
+      "url": "https://github.com/udaykirancodes/kinetic-studio",
+      "repo": "udaykirancodes/kinetic-studio",
+      "our_compositions": [
+        "StickFigureStory"
+      ],
+      "best_for": [
+        "word-synced kinetic text",
+        "retention-focused shorts"
+      ],
+      "license": "check repo",
+      "github": {
+        "stars": 4,
+        "forks": 1,
+        "description": "Create beautiful kinetic typography videos from text — fast and simple",
+        "homepage": "https://kinetics.udaykiran.dev/",
+        "topics": [
+          "cli",
+          "video-generation"
+        ],
+        "license": null,
+        "pushed_at": "2026-03-05T04:19:53Z",
+        "open_issues": 0
+      }
+    },
+    {
+      "id": "internal-stickfigure",
+      "name": "StickFigureStory (internal)",
+      "category": "internal",
+      "style_tags": [
+        "stickman",
+        "canva",
+        "paper-background",
+        "9:16"
+      ],
+      "description": "Our Canva stickman workflow composition. Paper bg, scene PNGs, voiceover, @zidansasc asset hints.",
+      "url": "https://youtu.be/b2k4xoXv3S4",
+      "repo": null,
+      "install": "POST /stickman/workflow",
+      "our_compositions": [
+        "StickFigureStory"
+      ],
+      "best_for": [
+        "viral stick figure storytelling",
+        "explainers",
+        "dev humor shorts"
+      ],
+      "license": "internal"
+    },
+    {
+      "id": "internal-product-promo",
+      "name": "ProductPromo (internal)",
+      "category": "internal",
+      "style_tags": [
+        "product",
+        "saas",
+        "60s",
+        "brand"
+      ],
+      "description": "Agent-planned 60s+ vertical promo with remocn + remotion-bits + light-leaks.",
+      "url": null,
+      "repo": null,
+      "install": "POST /agents/product-promo",
+      "our_compositions": [
+        "ProductPromo"
+      ],
+      "best_for": [
+        "NVIDIA-style promos",
+        "SaaS launches",
+        "brand reels"
+      ],
+      "license": "internal"
+    }
+  ],
+  "composition_map": {
+    "StickFigureStory": {
+      "recommended_templates": [
+        "remotion-captions-themes",
+        "remotion-tts",
+        "kinetic-studio",
+        "internal-stickfigure"
+      ],
+      "optional_libraries": [
+        "remocn",
+        "remotion-bits"
+      ]
+    },
+    "ProductPromo": {
+      "recommended_templates": [
+        "remocn",
+        "remotion-bits",
+        "onda",
+        "remotion-ui",
+        "internal-product-promo"
+      ],
+      "optional_libraries": [
+        "clippkit",
+        "@remotion/light-leaks"
+      ]
+    },
+    "MangaRecap": {
+      "recommended_templates": [
+        "remotion-bits",
+        "clippkit"
+      ],
+      "optional_libraries": [
+        "@remotion/transitions"
+      ]
+    },
+    "BrainrotFeed": {
+      "recommended_templates": [
+        "remotion-captions-themes",
+        "clippkit"
+      ],
+      "optional_libraries": []
+    },
+    "ChapterRecap": {
+      "recommended_templates": [
+        "remotion-captions-themes",
+        "remotion-tts",
+        "remotion-ui"
+      ],
+      "optional_libraries": [
+        "onda"
+      ]
+    }
+  },
+  "agent_rules": [
+    "Always call video_template_research before creating a new composition style.",
+    "Prefer installed libs (remocn, remotion-bits) before adding new dependencies.",
+    "For stickman/Canva style use StickFigureStory + remotion-captions-themes kinetic themes.",
+    "For 60s+ brand videos use ProductPromo + remocn blur-reveal/typewriter.",
+    "Refresh registry weekly: POST /video/templates/research",
+    "Remotion requires interpolate()/spring() — never CSS animations."
+  ],
+  "remotion_resources": [
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/template-helloworld"
+    },
+    {
+      "title": "Preview",
+      "url": "https://remotion-helloworld.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/template-helloworld-javascript"
+    },
+    {
+      "title": "Preview",
+      "url": "https://template-helloworld-javascript.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/template-empty"
+    },
+    {
+      "title": "Preview",
+      "url": "https://template-empty.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/template-three"
+    },
+    {
+      "title": "Preview",
+      "url": "https://template-three-remotion.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/template-still"
+    },
+    {
+      "title": "Preview",
+      "url": "https://template-still.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/FelippeChemello/Remotion-TTS-Example"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/thecmdrunner/remotion-gtts-template"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/template-audiogram"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/template-music-visualization"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/template-skia"
+    },
+    {
+      "title": "Hello World Template with pull request video previews",
+      "url": "https://github.com/stoat-dev/example-remotion"
+    },
+    {
+      "title": "Library starter template with best practices",
+      "url": "https://github.com/remotion-dev/library-starter"
+    },
+    {
+      "title": "Source Code",
+      "url": "https://github.com/sambowenhughes/a-react-video-editor"
+    },
+    {
+      "title": "Preview",
+      "url": "https://www.reactvideoeditor.com/open-source?utm_source=remotion"
+    },
+    {
+      "title": "Free Remotion Components",
+      "url": "https://www.clippkit.com/"
+    },
+    {
+      "title": "Remotion Bits - Ready-made blocks to use for you and your agents",
+      "url": "https://remotion-bits.dev/"
+    },
+    {
+      "title": "SwiftClip - 30 production-ready Remotion templates",
+      "url": "https://swift-clip.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/scotthavird/remotion-docker-template"
+    },
+    {
+      "title": "Template for deploying Remotion on Railway",
+      "url": "https://railway.com/deploy/remotion-on-rails"
+    },
+    {
+      "title": "Blog",
+      "url": "https://medium.com/@viveknathani/remotion-on-rails-0852acc9595e"
+    },
+    {
+      "title": "Multiple shared Remotion components in a Monorepo template",
+      "url": "https://github.com/Takamasa045/remotion-studio-monorepo"
+    },
+    {
+      "title": "React Router 7 template",
+      "url": "https://github.com/remotion-dev/template-react-router"
+    },
+    {
+      "title": "Next.js template",
+      "url": "https://github.com/remotion-dev/template-next"
+    },
+    {
+      "title": "Glitch Effect",
+      "url": "https://github.com/storybynumbers/remotion-glitch-effect"
+    },
+    {
+      "title": "Vidstack Player",
+      "url": "https://www.vidstack.io/docs/player/getting-started/installation/react?provider=remotion&styling=default-layout"
+    },
+    {
+      "title": "Remotion Animated",
+      "url": "https://www.remotion-animated.dev/"
+    },
+    {
+      "title": "remotion-transition-series",
+      "url": "https://github.com/marcusstenbeck/remotion-transition-series"
+    },
+    {
+      "title": "remotion-time",
+      "url": "https://github.com/fwextensions/remotion-time"
+    },
+    {
+      "title": "Timing Editor",
+      "url": "https://www.remotion.dev/timing-editor"
+    },
+    {
+      "title": "remotion-animate-text",
+      "url": "https://github.com/pskd73/remotion-animate-text"
+    },
+    {
+      "title": "remotion-subtitle",
+      "url": "https://github.com/ahgsql/remotion-subtitles"
+    },
+    {
+      "title": "GitHub Unwrapped 2023 + 2024",
+      "url": "https://github.com/remotion-dev/github-unwrapped"
+    },
+    {
+      "title": "GitHub Unwrapped 2022",
+      "url": "https://github.com/remotion-dev/github-unwrapped-2022"
+    },
+    {
+      "title": "GitHub Unwrapped 2021",
+      "url": "https://github.com/remotion-dev/github-unwrapped-2021"
+    },
+    {
+      "title": "MapSnap",
+      "url": "https://remotion.pro"
+    },
+    {
+      "title": "Remotion Weather",
+      "url": "https://github.com/florentpergoud/remotion-weather"
+    },
+    {
+      "title": "Conference Speaker Announcement Cards",
+      "url": "https://github.com/lyonjs/social-video-generator"
+    },
+    {
+      "title": "Motionly.video",
+      "url": "https://github.com/karelnagel/motionly"
+    },
+    {
+      "title": "Bar race chart",
+      "url": "https://github.com/hylarucoder/remotion-bar-race-chart"
+    },
+    {
+      "title": "Captioning and background removal with Sieve",
+      "url": "https://github.com/sieve-community/auto-reel-edit"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/tone-js-example"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/glb-example"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/typewriter"
+    },
+    {
+      "title": "Preview",
+      "url": "https://typewriter-remotion.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/d3-example"
+    },
+    {
+      "title": "Preview",
+      "url": "https://d3-example-remotion.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/3d-text"
+    },
+    {
+      "title": "Preview",
+      "url": "https://3d-text-remotion.vercel.app/"
+    },
+    {
+      "title": "Preview",
+      "url": "https://three-particles-remotion.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/morph-text"
+    },
+    {
+      "title": "Preview",
+      "url": "https://morph-text-remotion.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/text-warping"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/remotion-three-gltf-example"
+    },
+    {
+      "title": "Preview",
+      "url": "https://remotion-three-gltf-example.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/remotion-gl-transitions"
+    },
+    {
+      "title": "Preview",
+      "url": "https://remotion-gl-transitions.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/pomber/record-talk-with-remotion"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/openscript/remotion-devcontainer-template"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/anime-example"
+    },
+    {
+      "title": "Preview",
+      "url": "https://anime-example-remotion.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/mapbox-example"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/maplibre-example"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/video-with-jump-cuts"
+    },
+    {
+      "title": "Preview",
+      "url": "https://video-with-jump-cuts.vercel.app/"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/css-animation-play-state"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/alexfernandez803/remotion-globegl"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/measure-item"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/remotion-dev/light-leak-example"
+    },
+    {
+      "title": "Preview",
+      "url": "https://remotion-example.vercel.app/"
+    },
+    {
+      "title": "Source code and Preview",
+      "url": "https://github.com/hylarucoder/remotion-physics"
+    },
+    {
+      "title": "Remocn",
+      "url": "https://remocn.dev"
+    },
+    {
+      "title": "Source code",
+      "url": "https://github.com/kapishdima/remocn"
+    },
+    {
+      "title": "React Video Editor",
+      "url": "https://www.reactvideoeditor.com/remotion-templates?utm_source=remotion"
+    },
+    {
+      "title": "Source Code",
+      "url": "https://github.com/reactvideoeditor/remotion-templates"
+    },
+    {
+      "title": "RemotionUI",
+      "url": "https://remotionui.com"
+    }
+  ],
+  "last_research": {
+    "at": "2026-07-01T06:28:17Z",
+    "github_repos_updated": 8,
+    "remotion_links_found": 80,
+    "sources": [
+      "https://www.remotion.dev/docs/resources",
+      "https://github.com (public API)"
+    ]
+  }
+}

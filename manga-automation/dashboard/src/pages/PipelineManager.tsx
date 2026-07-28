@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Send, RefreshCw, Play, DollarSign, Flame, Search, Cpu } from 'lucide-react';
+import { Send, RefreshCw, Play, DollarSign, Flame, Search, Cpu, Clapperboard } from 'lucide-react';
 import { apiGet, apiPost } from '../services/api';
 
 interface WorkflowRow {
@@ -13,6 +13,7 @@ interface WorkflowRow {
 
 const PIPELINES = [
     { name: 'discover-publish', label: 'Discover & Publish', icon: <Search size={16} />, needsObjective: true },
+    { name: 'anime-theory', label: 'Anime Theory', icon: <Clapperboard size={16} />, needsObjective: true, needsAnime: true },
     { name: 'finance', label: 'Finance Video', icon: <DollarSign size={16} />, needsObjective: false },
     { name: 'viral', label: 'Viral Video', icon: <Flame size={16} />, needsObjective: false },
     { name: 'full-ops', label: 'Full Ops', icon: <Cpu size={16} />, needsObjective: false },
@@ -20,6 +21,7 @@ const PIPELINES = [
 
 export default function PipelineManager() {
     const [objective, setObjective] = useState('');
+    const [anime, setAnime] = useState('');
     const [running, setRunning] = useState<string | null>(null);
     const [log, setLog] = useState<string[]>([]);
     const [workflows, setWorkflows] = useState<WorkflowRow[]>([]);
@@ -47,11 +49,25 @@ export default function PipelineManager() {
         addLog(`Running ${name}…`);
         try {
             const body: any = {};
-            if (needsObjective) body.objective = objective;
+            if (needsObjective) {
+                if (name === 'anime-theory') {
+                    body.topic = objective;
+                    body.objective = objective;
+                    if (anime.trim()) body.anime = anime.trim();
+                    body.publish = true;
+                } else {
+                    body.objective = objective;
+                }
+            }
             const data = await apiPost(`/agent/pipeline/${name}`, body);
             const r = data.result ?? data;
-            const ok = r?.success !== false;
-            addLog(`${ok ? 'OK' : 'FAIL'} ${name}: published=${r?.published_count ?? r?.result?.published_count ?? '?'} failed=${r?.failed_count ?? r?.result?.failed_count ?? '?'}`);
+            const ok = r?.success !== false && r?.ok !== false;
+            addLog(
+                `${ok ? 'OK' : 'FAIL'} ${name}: ` +
+                `file=${r?.filename ?? r?.file ?? '?'} ` +
+                `published=${r?.published_count ?? r?.result?.published_count ?? (r?.published ? 'yes' : '?')} ` +
+                `failed=${r?.failed_count ?? r?.result?.failed_count ?? '?'}`
+            );
             await loadWorkflows();
         } catch (e: any) {
             addLog(`Error ${name}: ${e.message}`);
@@ -78,12 +94,21 @@ export default function PipelineManager() {
 
             <div className="glass" style={{ padding: 24, marginBottom: 24 }}>
                 <div className="form-group">
-                    <label>Objective (for Discover &amp; Publish)</label>
+                    <label>Topic / Objective (Discover &amp; Publish, Anime Theory)</label>
                     <input
                         className="form-input"
                         value={objective}
                         onChange={e => setObjective(e.target.value)}
-                        placeholder="e.g. funny family guy vietnamese dub short"
+                        placeholder="e.g. How Yuta DESTROYED the Sendai Colony"
+                    />
+                </div>
+                <div className="form-group">
+                    <label>Anime series (optional, for Anime Theory)</label>
+                    <input
+                        className="form-input"
+                        value={anime}
+                        onChange={e => setAnime(e.target.value)}
+                        placeholder="e.g. Jujutsu Kaisen"
                     />
                 </div>
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>

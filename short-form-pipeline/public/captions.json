@@ -1,0 +1,282 @@
+[
+  {
+    "text": "Your",
+    "startMs": 200,
+    "endMs": 500,
+    "timestampMs": 350,
+    "confidence": 0.99
+  },
+  {
+    "text": " brain",
+    "startMs": 530,
+    "endMs": 830,
+    "timestampMs": 680,
+    "confidence": 0.99
+  },
+  {
+    "text": " burns",
+    "startMs": 860,
+    "endMs": 1160,
+    "timestampMs": 1010,
+    "confidence": 0.99
+  },
+  {
+    "text": " twenty",
+    "startMs": 1190,
+    "endMs": 1490,
+    "timestampMs": 1340,
+    "confidence": 0.99
+  },
+  {
+    "text": " percent",
+    "startMs": 1520,
+    "endMs": 1820,
+    "timestampMs": 1670,
+    "confidence": 0.99
+  },
+  {
+    "text": " of",
+    "startMs": 1850,
+    "endMs": 2150,
+    "timestampMs": 2000,
+    "confidence": 0.99
+  },
+  {
+    "text": " your",
+    "startMs": 2180,
+    "endMs": 2480,
+    "timestampMs": 2330,
+    "confidence": 0.99
+  },
+  {
+    "text": " energy",
+    "startMs": 2510,
+    "endMs": 2810,
+    "timestampMs": 2660,
+    "confidence": 0.99
+  },
+  {
+    "text": " It",
+    "startMs": 2840,
+    "endMs": 3140,
+    "timestampMs": 2990,
+    "confidence": 0.99
+  },
+  {
+    "text": " runs",
+    "startMs": 3170,
+    "endMs": 3470,
+    "timestampMs": 3320,
+    "confidence": 0.99
+  },
+  {
+    "text": " on",
+    "startMs": 3500,
+    "endMs": 3800,
+    "timestampMs": 3650,
+    "confidence": 0.99
+  },
+  {
+    "text": " eighty-six",
+    "startMs": 3830,
+    "endMs": 4130,
+    "timestampMs": 3980,
+    "confidence": 0.99
+  },
+  {
+    "text": " billion",
+    "startMs": 4160,
+    "endMs": 4460,
+    "timestampMs": 4310,
+    "confidence": 0.99
+  },
+  {
+    "text": " neurons",
+    "startMs": 4490,
+    "endMs": 4790,
+    "timestampMs": 4640,
+    "confidence": 0.99
+  },
+  {
+    "text": " You",
+    "startMs": 4820,
+    "endMs": 5120,
+    "timestampMs": 4970,
+    "confidence": 0.99
+  },
+  {
+    "text": " have",
+    "startMs": 5150,
+    "endMs": 5450,
+    "timestampMs": 5300,
+    "confidence": 0.99
+  },
+  {
+    "text": " seventy",
+    "startMs": 5480,
+    "endMs": 5780,
+    "timestampMs": 5630,
+    "confidence": 0.99
+  },
+  {
+    "text": " thousand",
+    "startMs": 5810,
+    "endMs": 6110,
+    "timestampMs": 5960,
+    "confidence": 0.99
+  },
+  {
+    "text": " thoughts",
+    "startMs": 6140,
+    "endMs": 6440,
+    "timestampMs": 6290,
+    "confidence": 0.99
+  },
+  {
+    "text": " every",
+    "startMs": 6470,
+    "endMs": 6770,
+    "timestampMs": 6620,
+    "confidence": 0.99
+  },
+  {
+    "text": " day",
+    "startMs": 6800,
+    "endMs": 7100,
+    "timestampMs": 6950,
+    "confidence": 0.99
+  },
+  {
+    "text": " Just",
+    "startMs": 7130,
+    "endMs": 7430,
+    "timestampMs": 7280,
+    "confidence": 0.99
+  },
+  {
+    "text": " two",
+    "startMs": 7460,
+    "endMs": 7760,
+    "timestampMs": 7610,
+    "confidence": 0.99
+  },
+  {
+    "text": " percent",
+    "startMs": 7790,
+    "endMs": 8090,
+    "timestampMs": 7940,
+    "confidence": 0.99
+  },
+  {
+    "text": " of",
+    "startMs": 8120,
+    "endMs": 8420,
+    "timestampMs": 8270,
+    "confidence": 0.99
+  },
+  {
+    "text": " your",
+    "startMs": 8450,
+    "endMs": 8750,
+    "timestampMs": 8600,
+    "confidence": 0.99
+  },
+  {
+    "text": " body",
+    "startMs": 8780,
+    "endMs": 9080,
+    "timestampMs": 8930,
+    "confidence": 0.99
+  },
+  {
+    "text": " weight",
+    "startMs": 9110,
+    "endMs": 9410,
+    "timestampMs": 9260,
+    "confidence": 0.99
+  },
+  {
+    "text": " but",
+    "startMs": 9440,
+    "endMs": 9740,
+    "timestampMs": 9590,
+    "confidence": 0.99
+  },
+  {
+    "text": " twenty",
+    "startMs": 9770,
+    "endMs": 10070,
+    "timestampMs": 9920,
+    "confidence": 0.99
+  },
+  {
+    "text": " percent",
+    "startMs": 10100,
+    "endMs": 10400,
+    "timestampMs": 10250,
+    "confidence": 0.99
+  },
+  {
+    "text": " of",
+    "startMs": 10430,
+    "endMs": 10730,
+    "timestampMs": 10580,
+    "confidence": 0.99
+  },
+  {
+    "text": " the",
+    "startMs": 10760,
+    "endMs": 11060,
+    "timestampMs": 10910,
+    "confidence": 0.99
+  },
+  {
+    "text": " fuel",
+    "startMs": 11090,
+    "endMs": 11390,
+    "timestampMs": 11240,
+    "confidence": 0.99
+  },
+  {
+    "text": " Feed",
+    "startMs": 11420,
+    "endMs": 11720,
+    "timestampMs": 11570,
+    "confidence": 0.99
+  },
+  {
+    "text": " your",
+    "startMs": 11750,
+    "endMs": 12050,
+    "timestampMs": 11900,
+    "confidence": 0.99
+  },
+  {
+    "text": " brain",
+    "startMs": 12080,
+    "endMs": 12380,
+    "timestampMs": 12230,
+    "confidence": 0.99
+  },
+  {
+    "text": " Follow",
+    "startMs": 12410,
+    "endMs": 12710,
+    "timestampMs": 12560,
+    "confidence": 0.99
+  },
+  {
+    "text": " for",
+    "startMs": 12740,
+    "endMs": 13040,
+    "timestampMs": 12890,
+    "confidence": 0.99
+  },
+  {
+    "text": " more",
+    "startMs": 13070,
+    "endMs": 13370,
+    "timestampMs": 13220,
+    "confidence": 0.99
+  }
+]

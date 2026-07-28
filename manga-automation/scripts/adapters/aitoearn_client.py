@@ -566,6 +566,187 @@ class AiToEarnClient:
             return body
         return f"{body}\n{hashtag_line}".strip() if body else hashtag_line
 
+    def _assets_cdn_base(self) -> str:
+        return (
+            os.environ.get("AITOEARN_ASSETS_CDN") or "https://assets.aitoearn.ai"
+        ).rstrip("/")
+
+    def _is_aitoearn_asset_url(self, url: str) -> bool:
+        u = (url or "").strip().lower()
+        return u.startswith(self._assets_cdn_base().lower() + "/")
+
+    def _default_media_group_id(self, media_type: str) -> str | None:
+        """Resolve Default media group id for video|img via MCP listMediaGroups."""
+        want = "video" if media_type == "video" else "img"
+        call = self._mcp_call_tool("listMediaGroups", {"pageNo": 1, "pageSize": 50})
+        if not call.get("ok"):
+            return None
+        text = self._mcp_result_text(call.get("result", {}))
+        blocks = re.split(r"\n\s*-\s+", text)
+        for block in blocks:
+            type_m = re.search(r"(?m)^\s*type:\s*(\w+)", block)
+            id_m = re.search(r"(?m)^\s*id:\s*([^\n]+)", block)
+            if not type_m or not id_m:
+                continue
+            if type_m.group(1).strip().lower() == want:
+                return id_m.group(1).strip()
+        return None
+
+    def _media_public_url_from_relative(self, relative_path: str) -> str:
+        rel = relative_path.strip().lstrip("/")
+        return f"{self._assets_cdn_base()}/{rel}"
+
+    def register_remote_media(
+        self,
+        url: str,
+        *,
+        media_type: str = "video",
+        title: str = "",
+        desc: str = "",
+        thumb_url: str = "",
+    ) -> dict[str, Any]:
+        """Ingest a remote URL into AiToEarn media library → assets.aitoearn.ai CDN URL.
+
+        External hosts (litterbox, tmpfiles, etc.) fail createChannelPublishFlow
+        validation on TikTok/IG/FB; AiToEarn-hosted assets URLs succeed.
+        """
+        raw = (url or "").strip()
+        if not raw:
+            return {"ok": False, "error": "url_required"}
+        if self._is_aitoearn_asset_url(raw):
+            return {"ok": True, "public_url": raw, "uploaded": False, "provider": "assets_passthrough"}
+
+        if "createMedia" not in self._mcp_tool_names():
+            return {"ok": False, "error": "createMedia_tool_unavailable"}
+
+        mtype = "video" if media_type == "video" else "img"
+        group_id = self._default_media_group_id(mtype)
+        if not group_id:
+            return {"ok": False, "error": f"media_group_not_found:{mtype}"}
+
+        args: dict[str, Any] = {
+            "groupId": group_id,
+            "type": mtype,
+            "url": raw,
+        }
+        if title:
+            args["title"] = title[:120]
+        if desc:
+            args["desc"] = desc[:500]
+        if thumb_url and mtype == "video":
+            args["thumbUrl"] = thumb_url
+
+        created = self._mcp_call_tool("createMedia", args)
+        if not created.get("ok"):
+            return {"ok": False, "error": created.get("error") or "createMedia_failed"}
+        created_text = self._mcp_result_text(created.get("result", {}))
+        id_m = re.search(r"ID:\s*([a-f0-9]+)", created_text, flags=re.IGNORECASE)
+        media_id = id_m.group(1) if id_m else ""
+
+        listed = self._mcp_call_tool(
+            "listMedia", {"pageNo": 1, "pageSize": 20, "groupId": group_id}
+        )
+        list_text = self._mcp_result_text(listed.get("result", {}) if listed.get("ok") else {})
+        relative = ""
+        thumb_rel = ""
+        for block in re.split(r"\n\s*-\s+", list_text):
+            if media_id and media_id not in block and f"id: {media_id}" not in block:
+                # Prefer exact id match when we have one; otherwise take first url: line.
+                if media_id:
+                    continue
+            url_m = re.search(r"(?m)^\s*url:\s*([^\n]+)", block)
+            if not url_m:
+                continue
+            candidate = url_m.group(1).strip().strip('"')
+            if candidate.startswith("http"):
+                # Already absolute (unusual); use as-is.
+                relative = candidate
+            else:
+                relative = candidate
+            thumb_m = re.search(r"(?m)^\s*thumbUrl:\s*([^\n]+)", block)
+            if thumb_m:
+                thumb_rel = thumb_m.group(1).strip().strip('"')
+            if media_id and (f"id: {media_id}" in block or media_id in block):
+                break
+
+        if not relative:
+            return {
+                "ok": False,
+                "error": "createMedia_ok_but_url_not_found",
+                "media_id": media_id,
+                "raw": created_text[:300],
+            }
+
+        public_url = (
+            relative
+            if relative.startswith("http")
+            else self._media_public_url_from_relative(relative)
+        )
+        out: dict[str, Any] = {
+            "ok": True,
+            "public_url": public_url,
+            "uploaded": True,
+            "provider": "aitoearn_createMedia",
+            "media_id": media_id,
+            "group_id": group_id,
+            "relative_path": relative if not relative.startswith("http") else "",
+        }
+        if thumb_rel:
+            out["thumb_url"] = (
+                thumb_rel
+                if thumb_rel.startswith("http")
+                else self._media_public_url_from_relative(thumb_rel)
+            )
+        return out
+
+    def ensure_publish_media_urls(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Rewrite video/cover URLs onto assets.aitoearn.ai before channel fanout."""
+        payload = dict(payload)
+        title = str(payload.get("title") or payload.get("caption") or "").strip()
+        desc = str(
+            payload.get("desc") or payload.get("description") or payload.get("caption") or ""
+        ).strip()
+        video_url = self._extract_video_url(payload)
+        cover_url = str(payload.get("cover_url") or payload.get("coverUrl") or "").strip()
+
+        media_meta: dict[str, Any] = {}
+        if video_url and not self._is_aitoearn_asset_url(video_url):
+            hosted = self.register_remote_media(
+                video_url,
+                media_type="video",
+                title=title or "shortform",
+                desc=desc,
+                thumb_url=cover_url,
+            )
+            media_meta["video"] = hosted
+            if hosted.get("ok") and hosted.get("public_url"):
+                payload["video_url"] = hosted["public_url"]
+                payload["videoUrl"] = hosted["public_url"]
+            else:
+                payload["_media_host_error"] = hosted
+                return payload
+        elif video_url:
+            payload["video_url"] = video_url
+            payload["videoUrl"] = video_url
+
+        if cover_url and not self._is_aitoearn_asset_url(cover_url):
+            hosted_cover = self.register_remote_media(
+                cover_url,
+                media_type="img",
+                title=(title or "thumb")[:80],
+            )
+            media_meta["cover"] = hosted_cover
+            if hosted_cover.get("ok") and hosted_cover.get("public_url"):
+                payload["cover_url"] = hosted_cover["public_url"]
+                payload["coverUrl"] = hosted_cover["public_url"]
+        elif cover_url:
+            payload["cover_url"] = cover_url
+            payload["coverUrl"] = cover_url
+
+        if media_meta:
+            payload["_aitoearn_media"] = media_meta
+        return payload
+
     def _build_channels_v2_item_option(self, platform: str, payload: dict[str, Any]) -> dict[str, Any]:
         cover_url = str(payload.get("cover_url") or payload.get("coverUrl") or "").strip()
         video_url = self._extract_video_url(payload)
@@ -577,24 +758,28 @@ class AiToEarnClient:
                 "license": os.environ.get("AITOEARN_YT_LICENSE", "youtube"),
                 "categoryId": os.environ.get("AITOEARN_YT_CATEGORY_ID", "22"),
             }
-            if topics:
-                option["tags"] = topics
+            # tags are not in the official YouTube option schema — omit to avoid validation errors
+            _ = topics
             return option
 
         if platform == "tiktok":
-            return {"source": "PULL_FROM_URL" if video_url else "FILE_UPLOAD"}
+            option = {
+                "source": "PULL_FROM_URL" if video_url else "FILE_UPLOAD",
+                "privacy_level": os.environ.get(
+                    "AITOEARN_TIKTOK_PRIVACY", "PUBLIC_TO_EVERYONE"
+                ),
+                "is_aigc": _bool_env("AITOEARN_TIKTOK_IS_AIGC", default=True),
+            }
+            return option
 
         if platform in {"instagram", "instagram_reels"}:
-            option = {"media_type": "REELS" if video_url else "IMAGE"}
-            if cover_url:
-                option["cover_url"] = cover_url
-            caption = self._append_topics_to_body(
-                str(payload.get("desc") or payload.get("description") or payload.get("caption") or "").strip(),
-                payload,
-            )
-            if caption:
-                option["caption"] = caption
-            return option
+            # Schema only allows media_type / alt_text / collaborators / etc.
+            # Do NOT put cover_url or caption into option (causes validation failures).
+            return {"media_type": "REELS" if video_url else "IMAGE"}
+
+        if platform == "twitter":
+            # X requires short text; long captions from auto_caption fail validation.
+            return {}
 
         if platform == "pinterest":
             board_id = (
@@ -603,11 +788,12 @@ class AiToEarnClient:
                 or payload.get("pinterest_board_id")
                 or os.environ.get("AITOEARN_PINTEREST_BOARD_ID", "").strip()
             )
+            option: dict[str, Any] = {}
             if board_id:
-                option = {"boardId": str(board_id)}
-                if cover_url:
-                    option["coverImageUrl"] = cover_url
-                return option
+                option["boardId"] = str(board_id)
+            if cover_url:
+                option["coverImageUrl"] = cover_url
+            return option
 
         return {}
 
@@ -621,6 +807,8 @@ class AiToEarnClient:
         desc = str(payload.get("desc") or payload.get("description") or payload.get("caption") or title).strip()
         if platform == "tiktok":
             desc = self._append_topics_to_body(desc, payload, limit=5)
+        elif platform == "twitter":
+            desc = self._append_topics_to_body(desc, payload, limit=3)
         else:
             desc = self._append_topics_to_body(desc, payload)
 
@@ -629,21 +817,34 @@ class AiToEarnClient:
         img_urls = self._extract_img_urls(payload)
         publish_at = normalize_publish_time(payload.get("publishTime") or payload.get("publish_time"))
         if not publish_at:
+            # Schedule a couple minutes out so publishChannelTaskNow can still fire immediately.
             publish_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         content: dict[str, Any] = {"title": title, "body": desc or title}
+        if platform == "twitter":
+            # X/Twitter rejects long anime-theory captions ("Publish content validation failed").
+            tw_body = (desc or title).strip()
+            # Prefer caption/body without a separate long title dump.
+            tw_body = re.sub(r"\s+", " ", tw_body)
+            if len(tw_body) > 260:
+                tw_body = tw_body[:257].rstrip() + "..."
+            content = {"title": (title[:80] or "Short").strip(), "body": tw_body}
         if video_url:
             content["media"] = [{"url": video_url}]
         elif img_urls:
             content["media"] = [{"url": url} for url in img_urls]
-        if cover_url:
+        if cover_url and platform != "twitter":
             content["cover"] = {"url": cover_url}
 
-        context: dict[str, Any] = {"type": "video" if video_url else "article"}
-        if video_url:
-            context["videoUrl"] = video_url
-        if img_urls:
-            context["imgUrlList"] = img_urls
+        # Official schema: taskId / userTaskId / materialGroupId / materialId only.
+        context: dict[str, Any] = {}
+        media_meta = payload.get("_aitoearn_media") if isinstance(payload.get("_aitoearn_media"), dict) else {}
+        video_meta = media_meta.get("video") if isinstance(media_meta, dict) else None
+        if isinstance(video_meta, dict):
+            if video_meta.get("media_id"):
+                context["materialId"] = str(video_meta["media_id"])
+            if video_meta.get("group_id"):
+                context["materialGroupId"] = str(video_meta["group_id"])
         explicit_user_task_id = payload.get("user_task_id") or payload.get("userTaskId")
         if explicit_user_task_id:
             context["userTaskId"] = str(explicit_user_task_id)
@@ -651,17 +852,18 @@ class AiToEarnClient:
         item: dict[str, Any] = {
             "platform": self._channels_v2_platform(platform),
             "accountId": account_id,
+            # Schema expects `option` as an object; omit-vs-undefined breaks Pinterest/X.
+            "option": self._build_channels_v2_item_option(platform, payload) or {},
         }
-        option = self._build_channels_v2_item_option(platform, payload)
-        if option:
-            item["option"] = option
 
-        return {
+        out: dict[str, Any] = {
             "content": content,
             "publishAt": publish_at,
-            "context": context,
             "items": [item],
         }
+        if context:
+            out["context"] = context
+        return out
 
     def _maybe_publish_channel_tasks_now(self, result: dict[str, Any] | None) -> list[dict[str, Any]]:
         if "publishChannelTaskNow" not in self._mcp_tool_names():
@@ -750,6 +952,14 @@ class AiToEarnClient:
         return args
 
     def _run_publish_fanout(self, payload: dict[str, Any]) -> dict[str, Any]:
+        payload = self.ensure_publish_media_urls(payload)
+        if payload.get("_media_host_error"):
+            return {
+                "ok": False,
+                "error": "aitoearn_media_ingest_failed",
+                "detail": payload.get("_media_host_error"),
+            }
+
         accounts, accounts_source, _meta = self._collect_connected_accounts()
         if not accounts:
             return {
@@ -1076,7 +1286,7 @@ class AiToEarnClient:
                     method=method.upper(),
                     url=url,
                     headers=self.headers,
-                    json=body or {},
+                    json=body if method.upper() not in {"GET", "HEAD"} and body is not None else None,
                     timeout=self.config.timeout_sec,
                 )
                 if resp.status_code in {401, 403}:
@@ -1168,6 +1378,138 @@ class AiToEarnClient:
             return {"ok": False, "error": f"no_action_path_configured:{action}"}
         return self._request("POST", path, payload or {})
 
+    # ── AiToEarn Open Platform REST (Seedance video, images, channels) ─────────
+
+    def api_key_configured(self) -> bool:
+        return bool(self.config.api_key)
+
+    def _unwrap_openplatform(self, response: dict[str, Any]) -> dict[str, Any]:
+        if not response.get("ok"):
+            return response
+        payload = response.get("result")
+        if not isinstance(payload, dict):
+            return {"ok": True, "data": payload, "raw": response}
+        code = payload.get("code")
+        if isinstance(code, int) and code not in (0, 200):
+            return {
+                "ok": False,
+                "error": payload.get("message") or f"openplatform_error:{code}",
+                "code": code,
+                "body": payload,
+            }
+        data = payload.get("data", payload)
+        return {"ok": True, "data": data, "body": payload}
+
+    def create_video_generation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.api_key_configured():
+            return {"ok": False, "error": "AITOEARN_API_KEY is required for Seedance video generation"}
+        body = {k: v for k, v in payload.items() if v is not None}
+        return self._unwrap_openplatform(
+            self._request("POST", "/api/ai/video/generations", body),
+        )
+
+    def get_video_generation_status(self, task_id: str) -> dict[str, Any]:
+        if not self.api_key_configured():
+            return {"ok": False, "error": "AITOEARN_API_KEY is required"}
+        task_id = str(task_id or "").strip()
+        if not task_id:
+            return {"ok": False, "error": "task_id is required"}
+        return self._unwrap_openplatform(
+            self._request("GET", f"/api/ai/video/generations/{task_id}"),
+        )
+
+    def list_video_generations(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        if not self.api_key_configured():
+            return {"ok": False, "error": "AITOEARN_API_KEY is required"}
+        return self._unwrap_openplatform(
+            self._request(
+                "GET",
+                f"/api/ai/video/generations?page={max(1, page)}&pageSize={max(1, page_size)}",
+            ),
+        )
+
+    def get_video_model_params(self) -> dict[str, Any]:
+        if not self.api_key_configured():
+            return {"ok": False, "error": "AITOEARN_API_KEY is required"}
+        path = os.environ.get(
+            "AITOEARN_VIDEO_MODELS_PATH",
+            "/api/ai/video/generations/models",
+        ).strip()
+        return self._unwrap_openplatform(self._request("GET", path))
+
+    def _video_terminal_status(self, status: str) -> str:
+        raw = str(status or "").strip().lower()
+        if raw in {"completed", "success", "succeeded", "done", "finished"}:
+            return "completed"
+        if raw in {"failed", "error", "cancelled", "canceled"}:
+            return "failed"
+        return "pending"
+
+    def poll_video_generation(
+        self,
+        task_id: str,
+        *,
+        max_attempts: int | None = None,
+        interval_sec: float | None = None,
+    ) -> dict[str, Any]:
+        attempts = max_attempts or int(os.environ.get("AITOEARN_VIDEO_POLL_MAX_ATTEMPTS", "60"))
+        sleep_sec = interval_sec or float(os.environ.get("AITOEARN_VIDEO_POLL_INTERVAL_SEC", "10"))
+        last: dict[str, Any] = {"ok": False, "error": "poll_not_started"}
+        for attempt in range(1, attempts + 1):
+            last = self.get_video_generation_status(task_id)
+            if not last.get("ok"):
+                return {**last, "attempts": attempt}
+            data = last.get("data") or {}
+            status = self._video_terminal_status(str(data.get("status", "")))
+            if status == "completed":
+                return {
+                    "ok": True,
+                    "task_id": task_id,
+                    "status": data.get("status"),
+                    "video_url": data.get("videoUrl") or data.get("video_url"),
+                    "cover_url": data.get("coverUrl") or data.get("cover_url"),
+                    "media_id": data.get("mediaId") or data.get("media_id"),
+                    "group_id": data.get("groupId") or data.get("group_id"),
+                    "data": data,
+                    "attempts": attempt,
+                }
+            if status == "failed":
+                err = data.get("error") or {}
+                return {
+                    "ok": False,
+                    "task_id": task_id,
+                    "status": data.get("status"),
+                    "error": err.get("message") if isinstance(err, dict) else str(err or "generation_failed"),
+                    "data": data,
+                    "attempts": attempt,
+                }
+            time.sleep(max(1.0, sleep_sec))
+        return {
+            "ok": False,
+            "error": "video_generation_timeout",
+            "task_id": task_id,
+            "attempts": attempts,
+            "last": last,
+        }
+
+    def generate_video_and_wait(self, payload: dict[str, Any]) -> dict[str, Any]:
+        created = self.create_video_generation(payload)
+        if not created.get("ok"):
+            return created
+        data = created.get("data") or {}
+        task_id = str(data.get("id") or data.get("taskId") or "").strip()
+        if not task_id:
+            return {"ok": False, "error": "missing_task_id_in_create_response", "create": created}
+        polled = self.poll_video_generation(task_id)
+        return {
+            **polled,
+            "create": created,
+        }
+
 
 def _safe_json(resp: requests.Response) -> Any:
     try:
@@ -1209,3 +1551,31 @@ def get_publishing_task_status(flow_id: str) -> dict[str, Any]:
 
 def get_publish_restrictions(platforms: list[str]) -> dict[str, Any]:
     return CLIENT.get_publish_restrictions(platforms=platforms)
+
+
+def api_key_configured() -> bool:
+    return CLIENT.api_key_configured()
+
+
+def create_video_generation(payload: dict[str, Any]) -> dict[str, Any]:
+    return CLIENT.create_video_generation(payload)
+
+
+def get_video_generation_status(task_id: str) -> dict[str, Any]:
+    return CLIENT.get_video_generation_status(task_id)
+
+
+def list_video_generations(page: int = 1, page_size: int = 20) -> dict[str, Any]:
+    return CLIENT.list_video_generations(page=page, page_size=page_size)
+
+
+def get_video_model_params() -> dict[str, Any]:
+    return CLIENT.get_video_model_params()
+
+
+def poll_video_generation(task_id: str, **kwargs: Any) -> dict[str, Any]:
+    return CLIENT.poll_video_generation(task_id, **kwargs)
+
+
+def generate_video_and_wait(payload: dict[str, Any]) -> dict[str, Any]:
+    return CLIENT.generate_video_and_wait(payload)

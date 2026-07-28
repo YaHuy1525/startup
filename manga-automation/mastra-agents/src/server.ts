@@ -582,62 +582,174 @@ app.post('/dashboard/manga', async (req: Request, res: Response) => {
     }
 });
 
+const SHORTFORM_ROOT = process.env.SHORTFORM_ROOT
+    || path.resolve(__dirname, '../../../short-form-pipeline');
+const SHORTFORM_OUT = path.join(SHORTFORM_ROOT, 'out');
+
+/** Stable positive int id from a path/filename (for filesystem anime clips). */
+function stableClipId(key: string): number {
+    let h = 2166136261;
+    for (let i = 0; i < key.length; i++) {
+        h ^= key.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0) || 1;
+}
+
+function titleFromAnimeFilename(name: string): string {
+    return name
+        .replace(/\.mp4$/i, '')
+        .replace(/^anime-theory-/, '')
+        .replace(/[-_]+/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Scan short-form-pipeline/out for MP4s (anime theory + other renders). */
+function listShortformOutClips(statusFilter?: string): any[] {
+    try {
+        if (!fs.existsSync(SHORTFORM_OUT)) return [];
+        const files = fs.readdirSync(SHORTFORM_OUT).filter((f) => f.toLowerCase().endsWith('.mp4'));
+        const clips = files.map((name) => {
+            const local_path = path.join(SHORTFORM_OUT, name);
+            let file_size_mb: number | null = null;
+            let created_at: string | null = null;
+            try {
+                const st = fs.statSync(local_path);
+                file_size_mb = Math.round((st.size / 1_048_576) * 100) / 100;
+                created_at = st.mtime.toISOString();
+            } catch { /* ignore */ }
+            return {
+                id: stableClipId(name),
+                source_type: 'anime',
+                title: titleFromAnimeFilename(name),
+                local_path,
+                thumbnail_path: null,
+                duration_secs: null,
+                file_size_mb,
+                status: 'rendered',
+                source_url: null,
+                created_at,
+                published: [],
+            };
+        });
+        const filtered = statusFilter
+            ? clips.filter((c) => c.status === statusFilter)
+            : clips;
+        return filtered.sort((a, b) =>
+            String(b.created_at || '').localeCompare(String(a.created_at || ''))
+        );
+    } catch (err: any) {
+        logger.warn('Failed to list shortform out clips', { error: err?.message });
+        return [];
+    }
+}
+
 /** GET /dashboard/clips
- * Unified clip library: rendered/ingested `videos` + YouTube-sourced `arbitrage_assets`,
- * each with its publish history. Optional filters: ?source=video|arbitrage, ?status=...
+ * Unified clip library: rendered/ingested `videos` + YouTube-sourced `arbitrage_assets`
+ * + short-form-pipeline/out MP4s (source=anime). Filters: ?source=video|arbitrage|anime, ?status=
  */
 app.get('/dashboard/clips', async (req: Request, res: Response) => {
     const { source, status } = req.query as { source?: string; status?: string };
     try {
-        const result = await db.query(`
-            SELECT * FROM (
-                SELECT
-                    v.id,
-                    'video' AS source_type,
-                    COALESCE(NULLIF(v.caption, ''), 'Video #' || v.id) AS title,
-                    v.file_path AS local_path,
-                    v.thumbnail_path,
-                    v.duration_secs::numeric AS duration_secs,
-                    v.file_size_mb,
-                    v.status,
-                    NULL::text AS source_url,
-                    v.created_at,
-                    COALESCE((
-                        SELECT json_agg(json_build_object(
-                            'platform', pv.platform, 'url', pv.platform_url, 'published_at', pv.published_at
-                        ))
-                        FROM published_videos pv WHERE pv.video_id = v.id
-                    ), '[]'::json) AS published
-                FROM videos v
-                UNION ALL
-                SELECT
-                    a.id,
-                    'arbitrage' AS source_type,
-                    COALESCE(NULLIF(a.youtube_title, ''), 'Clip #' || a.id) AS title,
-                    a.local_path,
-                    NULL::text AS thumbnail_path,
-                    a.duration_secs::numeric AS duration_secs,
-                    a.file_size_mb,
-                    a.status,
-                    a.youtube_url AS source_url,
-                    a.created_at,
-                    COALESCE((
-                        SELECT json_agg(json_build_object(
-                            'platform', au.platform, 'url', au.platform_url, 'status', au.status
-                        ))
-                        FROM arbitrage_uploads au WHERE au.asset_id = a.id
-                    ), '[]'::json) AS published
-                FROM arbitrage_assets a
-            ) clips
-            WHERE ($1::text IS NULL OR clips.source_type = $1)
-              AND ($2::text IS NULL OR clips.status = $2)
-            ORDER BY clips.created_at DESC NULLS LAST
-            LIMIT 300
-        `, [source || null, status || null]);
-        res.json({ clips: result.rows });
+        let dbClips: any[] = [];
+        if (!source || source === 'video' || source === 'arbitrage') {
+            const result = await db.query(`
+                SELECT * FROM (
+                    SELECT
+                        v.id,
+                        'video' AS source_type,
+                        COALESCE(NULLIF(v.caption, ''), 'Video #' || v.id) AS title,
+                        v.file_path AS local_path,
+                        v.thumbnail_path,
+                        v.duration_secs::numeric AS duration_secs,
+                        v.file_size_mb,
+                        v.status,
+                        NULL::text AS source_url,
+                        v.created_at,
+                        COALESCE((
+                            SELECT json_agg(json_build_object(
+                                'platform', pv.platform, 'url', pv.platform_url, 'published_at', pv.published_at
+                            ))
+                            FROM published_videos pv WHERE pv.video_id = v.id
+                        ), '[]'::json) AS published
+                    FROM videos v
+                    UNION ALL
+                    SELECT
+                        a.id,
+                        'arbitrage' AS source_type,
+                        COALESCE(NULLIF(a.youtube_title, ''), 'Clip #' || a.id) AS title,
+                        a.local_path,
+                        NULL::text AS thumbnail_path,
+                        a.duration_secs::numeric AS duration_secs,
+                        a.file_size_mb,
+                        a.status,
+                        a.youtube_url AS source_url,
+                        a.created_at,
+                        COALESCE((
+                            SELECT json_agg(json_build_object(
+                                'platform', au.platform, 'url', au.platform_url, 'status', au.status
+                            ))
+                            FROM arbitrage_uploads au WHERE au.asset_id = a.id
+                        ), '[]'::json) AS published
+                    FROM arbitrage_assets a
+                ) clips
+                WHERE ($1::text IS NULL OR clips.source_type = $1)
+                  AND ($2::text IS NULL OR clips.status = $2)
+                ORDER BY clips.created_at DESC NULLS LAST
+                LIMIT 300
+            `, [source || null, status || null]);
+            dbClips = result.rows;
+        }
+
+        const animeClips = (!source || source === 'anime')
+            ? listShortformOutClips(status || undefined)
+            : [];
+
+        const clips = [...animeClips, ...dbClips]
+            .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+            .slice(0, 300);
+        res.json({ clips, shortform_out: SHORTFORM_OUT });
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
+});
+
+/** GET /dashboard/anime-theory/runs?limit=20
+ * Recent anime-theory pipeline rows; falls back to short-form out folder listing.
+ */
+app.get('/dashboard/anime-theory/runs', async (req: Request, res: Response) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+    try {
+        const result = await db.query(
+            `SELECT id, topic, title, anime, file_path, size_mb, duration_secs, status,
+                    publish_ok, published_count, video_id, created_at, error
+             FROM anime_theory_runs
+             ORDER BY created_at DESC NULLS LAST
+             LIMIT $1`,
+            [limit]
+        );
+        if (result.rows.length) {
+            return res.json({ runs: result.rows, source: 'db' });
+        }
+    } catch (err: any) {
+        logger.warn('anime_theory_runs query failed; using filesystem', { error: err?.message });
+    }
+    const runs = listShortformOutClips()
+        .filter((c) => String(c.title || '').length > 0)
+        .slice(0, limit)
+        .map((c) => ({
+            id: c.id,
+            topic: c.title,
+            title: c.title,
+            anime: null,
+            file_path: c.local_path,
+            size_mb: c.file_size_mb,
+            status: c.status,
+            publish_ok: false,
+            published_count: 0,
+            created_at: c.created_at,
+        }));
+    res.json({ runs, source: 'filesystem' });
 });
 
 /** GET /dashboard/clips/:id?source=video|arbitrage
@@ -1135,7 +1247,7 @@ app.post('/pipeline/render-video-custom', async (req: Request, res: Response) =>
         return res.status(400).json({ success: false, error: 'props object is required' });
     }
 
-    const allowed = new Set(['MangaRecap', 'BrainrotFeed', 'CharacterEdit', 'ChapterRecap', 'ProductPromo']);
+    const allowed = new Set(['MangaRecap', 'BrainrotFeed', 'CharacterEdit', 'ChapterRecap', 'ProductPromo', 'StickFigureStory']);
     if (!allowed.has(String(compositionId))) {
         return res.status(400).json({
             success: false,
@@ -1558,12 +1670,18 @@ app.post('/api/proxies/:id/test', async (req: Request, res: Response) => {
 const WORKER_URL = process.env.PYTHON_WORKER_URL || 'http://python-worker:8080';
 
 const callWorker = async (path: string, body: object = {}) => {
+    const timeoutMs = Number(process.env.WORKER_FETCH_TIMEOUT_MS || 3_600_000);
     const r = await fetch(`${WORKER_URL}${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
     });
-    return r.json();
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+        throw new Error((data as any)?.error || (data as any)?.result?.error || `Worker error (${r.status})`);
+    }
+    return data;
 };
 
 // ─── Publishing (manual clip publish + AiToEarn account ops) ──────────────────
@@ -1693,18 +1811,30 @@ app.get('/agent/agents', async (_req: Request, res: Response) => {
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-/** POST /agent/pipeline/:name — run a named pipeline (Hermes) or QwenPaw chat task. */
+/** POST /agent/pipeline/:name — run a named pipeline (Hermes worker) or QwenPaw chat task. */
 app.post('/agent/pipeline/:name', async (req: Request, res: Response) => {
     const name = req.params.name;
+    const workerRoutes: Record<string, string> = {
+        finance: '/hermes/finance-pipeline',
+        viral: '/hermes/viral-pipeline',
+        'link-publish': '/hermes/link-publish',
+        'discover-publish': '/hermes/discover-publish',
+        'full-ops': '/hermes/full-ops',
+        'anime-theory': '/hermes/anime-theory-pipeline',
+    };
+    const workerRoute = workerRoutes[name];
+
+    // Deterministic pipelines always hit the python worker (even when SUMMON_BACKEND=qwenpaw).
+    if (workerRoute) {
+        try {
+            const result = await callWorker(workerRoute, req.body || {});
+            res.json({ pipeline: name, ...result });
+        } catch (err: any) { res.status(500).json({ error: err.message }); }
+        return;
+    }
+
     if (isQwenPawBackend()) {
-        const prompts: Record<string, string> = {
-            finance: 'Run the finance pipeline: earnings proof → AI video → publish via AiToEarn.',
-            viral: 'Run the viral pipeline: discover trends → brief → video → publish.',
-            'link-publish': `Publish from link: ${req.body?.source_url || req.body?.video_url || 'use provided URL'}`,
-            'discover-publish': `Discover and publish: ${req.body?.objective || req.body?.prompt || ''}`,
-            'full-ops': 'Run full arbitrage ops: trends → source → publish → engage → report.',
-        };
-        const prompt = prompts[name] || `Run pipeline: ${name}`;
+        const prompt = `Run pipeline: ${name}`;
         try {
             const result = await qwenpawChat({ ...req.body, prompt, agent_id: 'pipeline-manager' });
             res.json({ pipeline: name, ...result });
@@ -1712,19 +1842,7 @@ app.post('/agent/pipeline/:name', async (req: Request, res: Response) => {
         return;
     }
 
-    const map: Record<string, string> = {
-        finance: '/hermes/finance-pipeline',
-        viral: '/hermes/viral-pipeline',
-        'link-publish': '/hermes/link-publish',
-        'discover-publish': '/hermes/discover-publish',
-        'full-ops': '/hermes/full-ops',
-    };
-    const route = map[req.params.name];
-    if (!route) return res.status(400).json({ error: `unknown pipeline: ${req.params.name}` });
-    try {
-        const result = await callWorker(route, req.body || {});
-        res.json({ pipeline: req.params.name, ...result });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    return res.status(400).json({ error: `unknown pipeline: ${name}` });
 });
 
 app.post('/arbitrage/discover-trends', async (req: Request, res: Response) => {

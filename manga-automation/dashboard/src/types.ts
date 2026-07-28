@@ -1,6 +1,6 @@
 // Shared types for the control dashboard.
 
-export type SourceType = 'video' | 'arbitrage';
+export type SourceType = 'video' | 'arbitrage' | 'anime';
 
 export interface PublishRef {
     platform: string;
@@ -43,6 +43,8 @@ export interface PublishRequest {
     cover_url?: string;
     publish_time?: string;
     yt_privacy?: 'public' | 'unlisted' | 'private';
+    /** Direct path for filesystem anime clips (source_type=anime) */
+    local_path?: string;
 }
 
 export interface PublishResultRow {

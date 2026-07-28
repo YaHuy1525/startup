@@ -15,10 +15,20 @@ _pool: Optional[SimpleConnectionPool] = None
 def _get_pool() -> SimpleConnectionPool:
     global _pool
     if _pool is None:
+        dsn = (
+            os.environ.get("DATABASE_URL")
+            or os.environ.get("SUPABASE_DB_URL")
+            or os.environ.get("SUPABASE_DATABASE_URL")
+            or ""
+        ).strip()
+        if not dsn:
+            raise KeyError(
+                "DATABASE_URL (or SUPABASE_DB_URL) is not set — required for Postgres/Supabase"
+            )
         _pool = SimpleConnectionPool(
             minconn=1,
             maxconn=5,
-            dsn=os.environ["DATABASE_URL"]
+            dsn=dsn,
         )
     return _pool
 

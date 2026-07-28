@@ -104,16 +104,32 @@ tiktokautouploader/
 tiktikuplaoder/
 shorts_maker/
 
-manga-automation/data/arbitrage_videos/
-manga-automation/data/panels/
-manga-automation/data/videos/
-manga-automation/data/logs/
-manga-automation/data/n8n/
-manga-automation/data/redis/
-manga-automation/data/postgres/
-manga-automation/data/obsidian-vault/
-manga-automation/data/music/
+# Runtime / generated data (do not commit — can contain media, DB dumps, vault notes)
+manga-automation/data/
+!manga-automation/data/music/README.md
 manga-automation/graphify-out/
+graphify-out/
+OmniRoute/
+
+# Large / generated media
+*.mp4
+*.webm
+*.mov
+!**/fixtures/**/*.mp4
+
+# Debug / agent scratch
+debug-*.log
+**/debug-*.log
+
+# Short-form pipeline local runtime (sibling project; keep secrets + renders out)
+short-form-pipeline/.env
+short-form-pipeline/**/.env
+short-form-pipeline/out/
+short-form-pipeline/public/assets/
+short-form-pipeline/node_modules/
+short-form-pipeline/work/
+short-form-pipeline/payloads/
+short-form-pipeline/data/
 
 # Obsidian vault — local UI/workspace state (notes remain tracked)
 free-claude-code-vault/.obsidian/

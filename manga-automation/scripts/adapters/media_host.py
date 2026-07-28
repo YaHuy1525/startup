@@ -23,7 +23,10 @@ UPLOAD_TIMEOUT_SEC = int(os.environ.get("MEDIA_UPLOAD_TIMEOUT_SEC", "240"))
 UPLOAD_USER_AGENT = "manga-automation-media-host/1.0"
 STABLE_FALLBACK_ORDER = [
     p.strip().lower()
-    for p in (os.environ.get("MEDIA_HOST_PROVIDERS") or "supabase,tmpfiles,0x0,transfer").split(",")
+    for p in (
+        os.environ.get("MEDIA_HOST_PROVIDERS")
+        or "supabase,litterbox,catbox,tmpfiles,0x0,transfer"
+    ).split(",")
     if p.strip()
 ]
 
@@ -114,11 +117,22 @@ def ensure_public_url(
     bucket = bucket or DEFAULT_BUCKET
     attempts: list[dict] = []
 
-    providers = STABLE_FALLBACK_ORDER or ["supabase", "tmpfiles", "0x0", "transfer"]
+    providers = STABLE_FALLBACK_ORDER or [
+        "supabase",
+        "litterbox",
+        "catbox",
+        "tmpfiles",
+        "0x0",
+        "transfer",
+    ]
     for provider in providers:
         try:
             if provider == "supabase":
                 result = _upload_supabase(raw, bucket=bucket)
+            elif provider in {"litterbox", "litterbox.catbox.moe"}:
+                result = _upload_litterbox(raw)
+            elif provider in {"catbox", "catbox.moe"}:
+                result = _upload_catbox(raw)
             elif provider == "tmpfiles":
                 result = _upload_tmpfiles(raw)
             elif provider in {"0x0", "0x0.st"}:
@@ -224,6 +238,51 @@ def _upload_supabase(local_path: str, *, bucket: str) -> dict:
     except Exception as exc:
         logger.error(f"Supabase upload error: {exc}")
         return {"ok": False, "error": f"supabase_exception:{exc}"}
+
+
+def _upload_litterbox(local_path: str, *, time_to_live: str | None = None) -> dict:
+    """Temporary host (up to ~1GB). Default TTL 72h — enough for AiToEarn fanout."""
+    ttl = (time_to_live or os.environ.get("LITTERBOX_TTL") or "72h").strip()
+    if ttl not in {"1h", "12h", "24h", "72h"}:
+        ttl = "72h"
+    try:
+        with open(local_path, "rb") as fh:
+            resp = requests.post(
+                "https://litterbox.catbox.moe/resources/internals/api.php",
+                data={"reqtype": "fileupload", "time": ttl},
+                files={"fileToUpload": (os.path.basename(local_path), fh)},
+                headers={"User-Agent": UPLOAD_USER_AGENT},
+                timeout=max(UPLOAD_TIMEOUT_SEC, 600),
+            )
+        if resp.status_code >= 400:
+            return {"ok": False, "error": f"litterbox_http_{resp.status_code}:{resp.text[:250]}"}
+        raw = (resp.text or "").strip()
+        if not raw.startswith("http"):
+            return {"ok": False, "error": f"litterbox_invalid_response:{raw[:250]}"}
+        return {"ok": True, "public_url": raw}
+    except Exception as exc:
+        return {"ok": False, "error": f"litterbox_exception:{exc}"}
+
+
+def _upload_catbox(local_path: str) -> dict:
+    """Permanent Catbox host (200MB max anonymous)."""
+    try:
+        with open(local_path, "rb") as fh:
+            resp = requests.post(
+                "https://catbox.moe/user/api.php",
+                data={"reqtype": "fileupload"},
+                files={"fileToUpload": (os.path.basename(local_path), fh)},
+                headers={"User-Agent": UPLOAD_USER_AGENT},
+                timeout=max(UPLOAD_TIMEOUT_SEC, 600),
+            )
+        if resp.status_code >= 400:
+            return {"ok": False, "error": f"catbox_http_{resp.status_code}:{resp.text[:250]}"}
+        raw = (resp.text or "").strip()
+        if not raw.startswith("http"):
+            return {"ok": False, "error": f"catbox_invalid_response:{raw[:250]}"}
+        return {"ok": True, "public_url": raw}
+    except Exception as exc:
+        return {"ok": False, "error": f"catbox_exception:{exc}"}
 
 
 def _upload_tmpfiles(local_path: str) -> dict:

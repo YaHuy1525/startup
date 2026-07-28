@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Film, RefreshCw, Send, ExternalLink } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { apiGet } from '../services/api';
 import type { Clip, SourceType } from '../types';
 import PublishComposer from '../components/PublishComposer';
 
 export default function ClipLibrary() {
+    const [params] = useSearchParams();
+    const initialSource = (params.get('source') as '' | SourceType) || '';
     const [clips, setClips] = useState<Clip[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [sourceFilter, setSourceFilter] = useState<'' | SourceType>('');
+    const [sourceFilter, setSourceFilter] = useState<'' | SourceType>(initialSource);
     const [statusFilter, setStatusFilter] = useState('');
     const [active, setActive] = useState<Clip | null>(null);
 
@@ -40,7 +43,8 @@ export default function ClipLibrary() {
                         <Film size={32} /> Clip Library
                     </h2>
                     <p style={{ color: 'var(--text-secondary)', marginTop: 8 }}>
-                        Every downloaded clip — pick one and publish to any platform connected on AiToEarn.
+                        Rendered videos, YouTube-sourced clips, and anime-theory Shorts from{' '}
+                        <code style={{ fontSize: 12 }}>short-form-pipeline/out</code>.
                     </p>
                 </div>
                 <button className="btn-secondary" onClick={load}>
@@ -48,12 +52,12 @@ export default function ClipLibrary() {
                 </button>
             </div>
 
-            {/* Filters */}
             <div className="glass" style={{ padding: 16, marginBottom: 24, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-                <select className="form-input" value={sourceFilter} onChange={e => setSourceFilter(e.target.value as any)} style={{ maxWidth: 200 }}>
+                <select className="form-input" value={sourceFilter} onChange={e => setSourceFilter(e.target.value as any)} style={{ maxWidth: 220 }}>
                     <option value="">All sources</option>
                     <option value="video">Rendered / ingested</option>
                     <option value="arbitrage">YouTube-sourced</option>
+                    <option value="anime">Anime theory (out folder)</option>
                 </select>
                 <select className="form-input" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ maxWidth: 200 }}>
                     <option value="">All statuses</option>
@@ -71,7 +75,7 @@ export default function ClipLibrary() {
                 </div>
             ) : clips.length === 0 ? (
                 <div className="glass" style={{ padding: 48, textAlign: 'center', color: 'var(--text-secondary)' }}>
-                    No clips yet. Use the Agent Console or Arbitrage pipeline to download some.
+                    No clips yet. Create one on Anime Theory, or use Agent Console / Arbitrage.
                 </div>
             ) : (
                 <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>

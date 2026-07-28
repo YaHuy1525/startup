@@ -1,0 +1,6 @@
+node_modules
+out
+.git
+.agents
+*.mp4
+*.log

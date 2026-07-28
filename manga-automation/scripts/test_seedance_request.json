@@ -1,0 +1,13 @@
+{
+  "prompt": "Cinematic NVIDIA RTX GPU product shot in a dark studio, green accent lighting (#76b900), slow camera push-in, premium tech aesthetic",
+  "model": "seedance-2-beta-1080p",
+  "ratio": "9:16",
+  "resolution": "1080p",
+  "duration": 12,
+  "product": "NVIDIA RTX",
+  "style": "cinematic product promo",
+  "publish": false,
+  "title": "RTX — built for AI creators",
+  "desc": "Power your AI video workflow with NVIDIA RTX.",
+  "channels": ["tiktok", "youtube"]
+}

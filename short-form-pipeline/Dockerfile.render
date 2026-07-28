@@ -1,0 +1,36 @@
+FROM node:20-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    libxshmfence1 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /short-form-pipeline
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY src ./src
+COPY server ./server
+COPY public ./public
+COPY tsconfig.json remotion.config.ts ./
+
+RUN npx @remotion/install-chrome-headless-shell 2>/dev/null || true
+
+ENV PORT=3333
+EXPOSE 3333
+
+CMD ["npm", "run", "server"]

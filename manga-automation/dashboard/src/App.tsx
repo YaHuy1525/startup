@@ -1,5 +1,5 @@
 import { Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Share2, Settings, Workflow, Users, Calendar, Activity, TrendingUp, Film, Send, Bot } from 'lucide-react';
+import { LayoutDashboard, Share2, Settings, Workflow, Users, Calendar, Activity, TrendingUp, Film, Send, Bot, Clapperboard } from 'lucide-react';
 import PublisherDashboard from './pages/PublisherDashboard';
 import Workflows from './pages/Workflows';
 import TikTokAccounts from './pages/TikTokAccounts';
@@ -9,6 +9,7 @@ import Arbitrage from './pages/Arbitrage';
 import ClipLibrary from './pages/ClipLibrary';
 import AgentConsole from './pages/AgentConsole';
 import PipelineManager from './pages/PipelineManager';
+import AnimeTheory from './pages/AnimeTheory';
 import { useEffect, useState } from 'react';
 import { API_BASE } from './config';
 
@@ -29,6 +30,10 @@ function App() {
           <NavLink to="/clips" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Film size={20} />
             Clip Library
+          </NavLink>
+          <NavLink to="/anime-theory" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Clapperboard size={20} />
+            Anime Theory
           </NavLink>
           <NavLink to="/agent" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Bot size={20} />
@@ -73,6 +78,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/clips" element={<ClipLibrary />} />
+          <Route path="/anime-theory" element={<AnimeTheory />} />
           <Route path="/agent" element={<AgentConsole />} />
           <Route path="/pipelines" element={<PipelineManager />} />
           <Route path="/publisher" element={<PublisherDashboard />} />

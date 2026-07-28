@@ -1,0 +1,11 @@
+{
+  "script": "You sit down to code. You open your laptop. Then you remember you need coffee. You make coffee. You check your phone. Three hours later, you still have not written a single line. Sound familiar? Here is why developers procrastinate — and how to fix it.",
+  "voice": false,
+  "optimize_audio": false,
+  "plan": true,
+  "render": true,
+  "assets_dir": "/data/panels/stickman-test",
+  "filename": "stickman-dev-procrastinate.mp4",
+  "title": "Why Developers Procrastinate",
+  "max_scenes": 12
+}

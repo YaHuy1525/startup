@@ -189,8 +189,9 @@ try {
 async function main() {
     let template: VideoTemplate | null = null;
     const isProductPromo = compositionId === "ProductPromo";
+    const skipTemplate = isProductPromo || compositionId === "StickFigureStory";
 
-    if (!isProductPromo) {
+    if (!skipTemplate) {
         const propsTemplateId = (props as any).templateId;
 
         if (propsTemplateId) {
@@ -304,6 +305,18 @@ async function main() {
                 0
             ) - Math.max(0, panels.length - 1) * 15;
             const totalFrames = Math.max(60 * 30, intro + bodyFrames + outro);
+            durationSecs = Math.round((totalFrames / 30) * 100) / 100;
+        } else if (compositionId === "StickFigureStory") {
+            const scenes = (props as any).scenes || [];
+            const xf = Number((props as any).crossfadeFrames ?? 12);
+            const sum = scenes.reduce(
+                (s: number, sc: any) => s + Number(sc.durationInFrames || 60),
+                0,
+            );
+            const totalFrames = Math.max(
+                15 * 30,
+                sum - Math.max(0, scenes.length - 1) * Math.max(0, xf),
+            );
             durationSecs = Math.round((totalFrames / 30) * 100) / 100;
         } else {
             const panels = (props as any).panels || [];

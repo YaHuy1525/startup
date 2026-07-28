@@ -1,0 +1,11 @@
+{
+  "prompt": "A sleek smartphone on a minimalist desk, soft studio lighting, slow cinematic push-in, premium product ad aesthetic",
+  "model": "seedance-2-fast-beta",
+  "ratio": "9:16",
+  "resolution": "480p",
+  "duration": 6,
+  "publish": true,
+  "title": "Seedance test clip — AI product shot",
+  "desc": "Automated test from manga-automation Seedance pipeline.",
+  "channels": ["tiktok"]
+}

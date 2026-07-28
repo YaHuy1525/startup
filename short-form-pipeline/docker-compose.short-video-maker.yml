@@ -1,0 +1,35 @@
+# short-video-maker (gyoridavid) — text -> TTS + Whisper captions + Pexels b-roll -> MP4
+# Uses the prebuilt "tiny" image (fastest, lowest RAM). See vendor/short-video-maker for source.
+#
+# Usage:
+#   1. Copy .env.example -> .env and set PEXELS_API_KEY (free: https://www.pexels.com/api/)
+#   2. docker compose -f docker-compose.short-video-maker.yml up -d
+#   3. UI/API on http://localhost:3123  (rendered videos land in ./out/short-video-maker)
+services:
+  short-video-maker:
+    image: gyoridavid/short-video-maker:latest-tiny
+    container_name: short-video-maker
+    restart: unless-stopped
+    # Run the prebuilt server directly, skipping the image's pnpm deps-check launcher.
+    entrypoint: ["node", "dist/index.js"]
+    environment:
+      - PEXELS_API_KEY=${PEXELS_API_KEY:?set PEXELS_API_KEY in .env}
+      - LOG_LEVEL=${SVM_LOG_LEVEL:-debug}
+      - WHISPER_VERBOSE=${SVM_WHISPER_VERBOSE:-false}
+      - PORT=3123
+      # Run the prebuilt server non-interactively (avoid pnpm TTY purge crash)
+      - CI=true
+      - DEV=false
+      # Tiny-image tuning to avoid Remotion OOM (normally set by the image launcher,
+      # which we bypass via the direct entrypoint below).
+      - CONCURRENCY=1
+      - VIDEO_CACHE_SIZE_IN_BYTES=2097152000
+    ports:
+      - "3123:3123"
+    volumes:
+      - ./out/short-video-maker:/app/data/videos
+    # tiny image needs ~3GB RAM; bump if you see Remotion OOM errors
+    deploy:
+      resources:
+        limits:
+          memory: 6g

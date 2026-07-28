@@ -14,6 +14,7 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -704,6 +705,36 @@ def run_finance_pipeline(body: dict[str, Any] | None = None) -> dict[str, Any]:
             f"and published to {steps[2].get('succeeded', '?')} platforms."
             if video_id else "Pipeline completed with errors."
         ),
+    }
+
+
+def run_anime_theory_pipeline(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Hermes entry: anime-theory Short E2E (script → Remotion → caption → AiToEarn).
+
+    Body:
+      topic / title / objective  str  required
+      anime / series             str
+      context                    str
+      long                       bool
+      publish                    bool  default True
+      dry_run                    bool
+      channels                   list  default tiktok,instagram,facebook
+    """
+    from scripts import shortform_pipeline
+
+    body = body or {}
+    logger.info(
+        "Hermes: anime-theory pipeline topic=%r anime=%r publish=%s dry_run=%s",
+        body.get("topic") or body.get("title") or body.get("objective"),
+        body.get("anime") or body.get("series"),
+        body.get("publish", True),
+        body.get("dry_run", False),
+    )
+    result = shortform_pipeline.run_anime_theory_pipeline(body)
+    return {
+        "success": bool(result.get("ok") or result.get("success")),
+        "pipeline": "anime_theory",
+        **result,
     }
 
 
@@ -1918,6 +1949,182 @@ def run_link_publish_pipeline(body: dict[str, Any] | None = None) -> dict[str, A
     return result
 
 
+
+def run_learn_anime_style(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Hermes adaptive learning: scrape a competitor channel and refresh style memory.
+
+    Prefer Hermes over QwenPaw for script-style adaptation. Hermes owns the
+    playbook consumed by short-form anime-theory generation.
+    """
+    body = body or {}
+    channel = str(body.get("channel") or body.get("url") or "@animeinsider64").strip()
+    limit = int(body.get("limit") or 25)
+    max_duration_s = float(body.get("max_duration_s") or body.get("max_duration") or 180)
+    rebuild_only = bool(body.get("rebuild_only") or body.get("rebuildOnly"))
+
+    shortform_root = Path(
+        os.environ.get("SHORTFORM_ROOT")
+        or str(Path(__file__).resolve().parents[2] / "short-form-pipeline")
+    )
+    if str(shortform_root) not in sys.path:
+        sys.path.insert(0, str(shortform_root))
+
+    try:
+        from reddit_to_script import style_memory  # type: ignore
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "success": False,
+            "error": f"style_memory_import_failed: {exc}",
+            "hint": "Ensure short-form-pipeline is on PYTHONPATH / SHORTFORM_ROOT",
+        }
+
+    logger.info(
+        "Hermes: learning anime Short style from %s (limit=%s rebuild_only=%s)",
+        channel,
+        limit,
+        rebuild_only,
+    )
+    try:
+        result = style_memory.train_channel(
+            channel,
+            limit=limit,
+            max_duration_s=max_duration_s,
+            scrape=not rebuild_only,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Hermes style learning failed")
+        return {"success": False, "error": str(exc), "channel": channel}
+
+    playbook = result.get("playbook") or {}
+    return {
+        "success": bool(result.get("ok")),
+        "agent": "hermes",
+        "action": "learn_anime_style",
+        "channel": result.get("channel"),
+        "playbook_path": result.get("playbook_path"),
+        "sample_count": playbook.get("sample_count"),
+        "median_words": playbook.get("median_words"),
+        "avg_words": playbook.get("avg_words"),
+        "avg_duration_s": playbook.get("avg_duration_s"),
+        "top_hooks": playbook.get("top_hook_starters"),
+        "style_brief": playbook.get("style_brief"),
+    }
+
+
+def run_learn_thumbnail_style(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Hermes adaptive learning: harvest competitor YouTube posters into thumbnail memory.
+
+    Owned by shortform-thumbnail agent. Separate from script style memory.
+    """
+    body = body or {}
+    channel = str(body.get("channel") or body.get("url") or "@animeinsider64").strip()
+    limit = int(body.get("limit") or 80)
+    run_vision = not bool(body.get("no_vision") or body.get("noVision"))
+
+    shortform_root = Path(
+        os.environ.get("SHORTFORM_ROOT")
+        or str(Path(__file__).resolve().parents[2] / "short-form-pipeline")
+    )
+    if str(shortform_root) not in sys.path:
+        sys.path.insert(0, str(shortform_root))
+
+    try:
+        from reddit_to_script import thumbnail_memory  # type: ignore
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "success": False,
+            "error": f"thumbnail_memory_import_failed: {exc}",
+            "hint": "Ensure short-form-pipeline is on PYTHONPATH / SHORTFORM_ROOT",
+        }
+
+    logger.info(
+        "Hermes: learning thumbnail/poster style from %s (limit=%s vision=%s)",
+        channel,
+        limit,
+        run_vision,
+    )
+    try:
+        result = thumbnail_memory.train_thumbnails(
+            channel,
+            limit=limit,
+            run_vision=run_vision,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Hermes thumbnail learning failed")
+        return {"success": False, "error": str(exc), "channel": channel}
+
+    playbook = result.get("playbook") or {}
+    return {
+        "success": bool(result.get("ok")),
+        "agent": "hermes",
+        "action": "learn_thumbnail_style",
+        "owner_agent": "shortform-thumbnail",
+        "channel": result.get("channel"),
+        "playbook_path": result.get("playbook_path"),
+        "thumbs_downloaded": result.get("thumbs_downloaded"),
+        "sample_count": playbook.get("sample_count"),
+        "median_overlay_words": playbook.get("median_overlay_words"),
+        "title_shapes": playbook.get("title_shapes"),
+        "style_brief": playbook.get("style_brief"),
+    }
+
+
+def run_learn_channel_quality(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Hermes: train ALL quality perspectives (script, edit/pacing, music, thumbnails).
+
+    Default rebuild-only from existing scraped channel data (safe under YouTube IP bans).
+    Pass scrape=true to attempt new transcripts.
+    """
+    body = body or {}
+    channel = str(body.get("channel") or body.get("url") or "@animeinsider64").strip()
+    limit = int(body.get("limit") or 80)
+    max_duration_s = float(body.get("max_duration_s") or body.get("max_duration") or 180)
+    scrape = bool(body.get("scrape"))
+    run_vision = not bool(body.get("no_vision") or body.get("noVision"))
+
+    shortform_root = Path(
+        os.environ.get("SHORTFORM_ROOT")
+        or str(Path(__file__).resolve().parents[2] / "short-form-pipeline")
+    )
+    if str(shortform_root) not in sys.path:
+        sys.path.insert(0, str(shortform_root))
+
+    try:
+        from reddit_to_script import train_channel_quality  # type: ignore
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "success": False,
+            "error": f"train_channel_quality_import_failed: {exc}",
+            "hint": "Ensure short-form-pipeline is on PYTHONPATH / SHORTFORM_ROOT",
+        }
+
+    logger.info(
+        "Hermes: channel quality train %s (scrape=%s limit=%s vision=%s)",
+        channel,
+        scrape,
+        limit,
+        run_vision,
+    )
+    try:
+        result = train_channel_quality.train_all(
+            channel,
+            limit=limit,
+            max_duration_s=max_duration_s,
+            scrape=scrape,
+            run_vision=run_vision,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Hermes channel quality training failed")
+        return {"success": False, "error": str(exc), "channel": channel}
+
+    return {
+        "success": bool(result.get("ok")),
+        "agent": "hermes",
+        "action": "learn_channel_quality",
+        **result,
+    }
+
+
 def main(body: dict | None = None, **kwargs) -> dict[str, Any]:
     if body is None:
         body = kwargs
@@ -1941,10 +2148,39 @@ def main(body: dict | None = None, **kwargs) -> dict[str, Any]:
         return run_finance_pipeline(body)
     if action == "viral_pipeline":
         return run_viral_pipeline(body)
+    if action in {
+        "anime_theory_pipeline",
+        "anime-theory-pipeline",
+        "anime_theory",
+        "anime-theory",
+    }:
+        return run_anime_theory_pipeline(body)
     if action in {"link_publish", "source_publish", "link_publish_pipeline"}:
         return run_link_publish_pipeline(body)
     if action in {"discover_publish", "discover_publish_pipeline"}:
         return run_discover_publish_pipeline(body)
+    if action in {
+        "learn_anime_style",
+        "learn_style",
+        "train_channel",
+        "anime_style",
+    }:
+        return run_learn_anime_style(body)
+    if action in {
+        "learn_thumbnail_style",
+        "learn_thumbnails",
+        "train_thumbnails",
+        "thumbnail_style",
+    }:
+        return run_learn_thumbnail_style(body)
+    if action in {
+        "learn_channel_quality",
+        "train_channel_quality",
+        "channel_quality",
+        "learn_all",
+        "train_all",
+    }:
+        return run_learn_channel_quality(body)
     return {"success": False, "error": f"unknown action {action}"}
 
 

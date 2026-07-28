@@ -1,0 +1,8 @@
+{
+  "duration_secs": 45,
+  "topic_hint": "why developers open Slack instead of coding",
+  "auto_pick_topic": true,
+  "render": false,
+  "voice": false,
+  "skip_clean_narration": true
+}

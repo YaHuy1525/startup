@@ -57,6 +57,11 @@ AGENTS = {
             "performance_report",
             "content_plan",
             "finance_pipeline",
+            "product_promo",
+            "seedance_video",
+            "shortform_pipeline",
+            "shortform_monitor",
+            "shortform_anime_theory",
         ],
         "channels": ["telegram"],
     },
@@ -123,6 +128,198 @@ AGENTS = {
         ),
         "skills": ["product_promo"],
         "channels": ["telegram"],
+    },
+    "seedance-director": {
+        "name": "Seedance Director",
+        "description": (
+            "AiToEarn Open Platform specialist for short AI video clips (Seedance 4-15s). "
+            "Generates via REST API, polls task status, and can publish to connected channels."
+        ),
+        "skills": ["seedance_video", "publish_content"],
+        "channels": ["telegram"],
+    },
+    "stickman-director": {
+        "name": "Stickman Director",
+        "description": (
+            "Orchestrates the DeepSeek + Remotion stickman Flow: character ref, "
+            "script, scene stills, Remotion motion, voiceover, final edit. "
+            "Also supports legacy Canva-style stickman_video."
+        ),
+        "skills": [
+            "stickman_flow",
+            "stickman_character_ref",
+            "stickman_script",
+            "stickman_scene_images",
+            "stickman_animate",
+            "stickman_voice",
+            "stickman_edit",
+            "stickman_video",
+            "video_template_research",
+            "video_render",
+            "publish_content",
+            "multi_agent_collaboration",
+        ],
+        "channels": ["telegram"],
+    },
+    "stickman-character-ref": {
+        "name": "Stickman Character Ref",
+        "description": (
+            "Sources the stickman character reference image (URL/path/default) "
+            "so all scenes stay visually consistent."
+        ),
+        "skills": ["stickman_character_ref"],
+        "channels": [],
+    },
+    "stickman-scriptwriter": {
+        "name": "Stickman Scriptwriter",
+        "description": (
+            "DeepSeek specialist: 20 topic ideas, then full script with narration, "
+            "image_prompt, and video_prompt per scene sized to target duration."
+        ),
+        "skills": ["stickman_script"],
+        "channels": [],
+    },
+    "stickman-scene-artist": {
+        "name": "Stickman Scene Artist",
+        "description": (
+            "Creates per-scene stickman stills using OpenRouter image models when "
+            "configured, otherwise programmatic stick-figure PNGs with pose hints."
+        ),
+        "skills": ["stickman_scene_images"],
+        "channels": [],
+    },
+    "stickman-animator": {
+        "name": "Stickman Animator",
+        "description": (
+            "Maps each scene video_prompt to Remotion motion presets "
+            "(zoom, bounce, slide, idle sway) — replaces Omni Flash."
+        ),
+        "skills": ["stickman_animate"],
+        "channels": [],
+    },
+    "stickman-voice": {
+        "name": "Stickman Voice",
+        "description": (
+            "DeepSeek cleans narration paragraphs, then synthesizes voiceover "
+            "via ElevenLabs/Kokoro with ffmpeg silence trim."
+        ),
+        "skills": ["stickman_voice"],
+        "channels": [],
+    },
+    "stickman-editor": {
+        "name": "Stickman Editor",
+        "description": (
+            "Final Remotion StickFigureStory render: sequences scenes, syncs "
+            "voiceover, exports MP4."
+        ),
+        "skills": ["stickman_edit", "video_render"],
+        "channels": [],
+    },
+    "video-template-director": {
+        "name": "Video Template Director",
+        "description": (
+            "Researches React/Remotion video templates from the internet (GitHub, remotion.dev) "
+            "and recommends libraries + compositions before rendering."
+        ),
+        "skills": ["video_template_research", "stickman_video", "product_promo", "video_render"],
+        "channels": ["telegram"],
+    },
+    # ── Short-form Reddit → meme → AiToEarn ──────────────────────────────────
+    "shortform-director": {
+        "name": "Shortform Director",
+        "description": (
+            "Ultimate monitor for Reddit meme shorts: fetch → script → agentic meme "
+            "find → OpenAI voice → Remotion render → AiToEarn publish. Owns status "
+            "and recovery across the whole loop."
+        ),
+        "skills": [
+            "multi_agent_collaboration",
+            "shortform_pipeline",
+            "shortform_monitor",
+            "shortform_story_fetch",
+            "shortform_script",
+            "shortform_find_memes",
+            "shortform_voice",
+            "shortform_render",
+            "shortform_publish",
+            "shortform_anime_theory",
+            "shortform_caption",
+            "shortform_thumbnail",
+            "publish_content",
+            "account_health",
+        ],
+        "channels": ["telegram"],
+    },
+    "shortform-story-fetcher": {
+        "name": "Shortform Story Fetcher",
+        "description": "Fetches Reddit text stories via RSS for short-form meme videos.",
+        "skills": ["shortform_story_fetch"],
+        "channels": [],
+    },
+    "shortform-scriptwriter": {
+        "name": "Shortform Scriptwriter",
+        "description": "Turns Reddit stories into meme-tuned short scripts with reaction searchTerms.",
+        "skills": ["shortform_script"],
+        "channels": [],
+    },
+    "shortform-meme-finder": {
+        "name": "Shortform Meme Finder",
+        "description": (
+            "Agentic Giphy meme picker: ranks candidates against scene narration, "
+            "re-searches when needed, falls back to Pexels."
+        ),
+        "skills": ["shortform_find_memes"],
+        "channels": [],
+    },
+    "shortform-voice": {
+        "name": "Shortform Voice",
+        "description": "OpenAI human TTS + word-timed captions for meme shorts.",
+        "skills": ["shortform_voice"],
+        "channels": [],
+    },
+    "shortform-renderer": {
+        "name": "Shortform Renderer",
+        "description": "Renders Remotion MemeStory and AnimeTheory shorts.",
+        "skills": ["shortform_render", "shortform_anime_theory", "shortform_pipeline"],
+        "channels": [],
+    },
+    "shortform-anime-theory": {
+        "name": "Anime Theory Creator",
+        "description": (
+            "Full anime-theory pipeline: topic → lore script → Safebooru/AniList "
+            "visuals → Remotion → caption + thumbnail → AiToEarn publish."
+        ),
+        "skills": [
+            "shortform_anime_theory",
+            "shortform_caption",
+            "shortform_thumbnail",
+            "shortform_publish",
+        ],
+        "channels": [],
+    },
+    "shortform-thumbnail": {
+        "name": "Shortform Thumbnail",
+        "description": (
+            "Designs YouTube Short thumbnails/posters from Hermes-trained "
+            "competitor poster style (separate from scriptwriting)."
+        ),
+        "skills": ["shortform_thumbnail"],
+        "channels": [],
+    },
+    "shortform-captioner": {
+        "name": "Shortform Captioner",
+        "description": (
+            "Writes viral captions + hashtags for anime-theory Shorts before "
+            "AiToEarn publish."
+        ),
+        "skills": ["shortform_caption"],
+        "channels": [],
+    },
+    "shortform-publisher": {
+        "name": "Shortform Publisher",
+        "description": "Hosts meme MP4s and publishes via AiToEarn MCP to connected platforms.",
+        "skills": ["shortform_publish", "publish_content", "account_health"],
+        "channels": [],
     },
 }
 

@@ -111,6 +111,7 @@ export default function PublishComposer({ clip, onClose }: Props) {
             const data = await apiPost('/publish', {
                 clip_id: clip.id,
                 source_type: clip.source_type,
+                local_path: (clip as { local_path?: string }).local_path || undefined,
                 channels,
                 selected_accounts: selectedMap,
                 account_ids: Array.from(selected),

@@ -11,6 +11,21 @@ AiToEarn Pipeline (primary):
     POST /aitoearn/stage/engage    body: { platform? }
     POST /aitoearn/stage/monetize  body: { creator_id? }
 
+AiToEarn Open Platform — Seedance video:
+    POST /aitoearn/seedance/workflow   body: { prompt, model?, ratio?, duration?, publish?, ... }
+    POST /aitoearn/seedance/generate   body: { prompt, wait?: true }
+    POST /aitoearn/seedance/status     body: { task_id }
+    POST /aitoearn/openplatform/video/models  body: {}
+
+Stickman / Canva-style viral animation (tutorial: https://youtu.be/b2k4xoXv3S4):
+    POST /stickman/workflow   body: { script, voice?, optimize_audio?, plan?, render?, assets_dir? }
+
+Stickman Flow (DeepSeek + Remotion; no Google Flow / Omni Flash):
+    POST /stickman/flow   body: { duration_secs?, topic_hint?, topic?, auto_pick_topic?, character_ref_url?, render? }
+
+React/Remotion template research (learn from internet):
+    POST /video/templates/research   body: { action: "refresh"|"list"|"recommend", brief?, composition_id? }
+
 CrewAI Agent Pipeline:
     POST /api/summon-agent      body: { prompt, target_count, dry_run, sync }
 
@@ -38,6 +53,7 @@ import sys
 import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -123,6 +139,20 @@ from scripts.aitoearn_pipeline import (
     stage_monetize,
     run_full_pipeline,
 )
+from scripts.aitoearn_seedance_pipeline import run_seedance_workflow
+from scripts.stickman_pipeline import run_stickman_workflow
+from scripts.stickman_flow_pipeline import run_stickman_flow
+from scripts.video_template_research import run_template_research
+from scripts import shortform_pipeline
+from scripts import tiktok_story_longform
+
+
+def _shortform_pipeline(body: dict) -> dict:
+    return shortform_pipeline.main(body or {})
+
+
+def _tiktok_longform(body: dict) -> dict:
+    return tiktok_story_longform.main(body or {})
 
 
 def _run_deerflow(body: dict) -> dict:
@@ -273,8 +303,128 @@ def _aitoearn_publish_restrictions(body: dict) -> dict:
     return aitoearn_client.get_publish_restrictions(platforms=platforms)
 
 
-def _resolve_clip_local_path(clip_id: int, source_type: str) -> dict:
+def _aitoearn_seedance_workflow(body: dict) -> dict:
+    return run_seedance_workflow(body)
+
+
+def _aitoearn_seedance_generate(body: dict) -> dict:
+    from scripts.aitoearn_seedance_pipeline import stage_generate
+
+    return stage_generate(body, wait=body.get("wait", True))
+
+
+def _aitoearn_seedance_status(body: dict) -> dict:
+    task_id = str(body.get("task_id") or body.get("taskId") or "").strip()
+    if not task_id:
+        return {"ok": False, "error": "task_id is required"}
+    return aitoearn_client.get_video_generation_status(task_id)
+
+
+def _aitoearn_openplatform_video_models(_body: dict) -> dict:
+    return aitoearn_client.get_video_model_params()
+
+
+def _stickman_workflow(body: dict) -> dict:
+    return run_stickman_workflow(body)
+
+
+def _stickman_flow(body: dict) -> dict:
+    """DeepSeek script + Remotion animate/edit multi-agent stickman flow."""
+    return run_stickman_flow(body)
+
+
+def _stickman_prompt(body: dict) -> dict:
+    """Video-prompting agent: turn a story/premise into a scene-by-scene video plan."""
+    from scripts.stickman_video_prompter import run_video_prompter
+
+    return run_video_prompter(body)
+
+
+def _stickman_panel_library(body: dict) -> dict:
+    """List or generate categorized AI stickman panels."""
+    from scripts.stickman_panel_library import list_library, resolve_or_generate_panel
+
+    action = str(body.get("action") or "").strip() or None
+    if body.get("generate") or body.get("narration") or body.get("prompt"):
+        return resolve_or_generate_panel(
+            action=action,
+            narration=str(body.get("narration") or body.get("generate") or ""),
+            image_prompt=str(body.get("prompt") or body.get("image_prompt") or ""),
+            video_prompt=str(body.get("video_prompt") or ""),
+            character_ref_path=body.get("character_ref_path"),
+            force_regenerate=bool(body.get("force") or body.get("force_regenerate")),
+            reuse_library=body.get("reuse_library", True),
+        )
+    return list_library(action)
+
+
+def _video_template_research(body: dict) -> dict:
+    return run_template_research(body)
+
+
+def _shortform_allowed_roots() -> list[Path]:
+    roots: list[Path] = []
+    for key in ("SHORTFORM_ROOT", "SHORTFORM_OUT"):
+        raw = (os.environ.get(key) or "").strip()
+        if raw:
+            roots.append(Path(raw).resolve())
+    # Default mount inside docker + common host-relative fallbacks
+    for candidate in (
+        Path("/short-form-pipeline"),
+        Path("/short-form-pipeline/out"),
+        Path(__file__).resolve().parents[2] / "short-form-pipeline",
+        Path(__file__).resolve().parents[2] / "short-form-pipeline" / "out",
+    ):
+        roots.append(candidate.resolve())
+    # Dedupe
+    uniq: list[Path] = []
+    seen: set[str] = set()
+    for r in roots:
+        key = str(r)
+        if key not in seen:
+            seen.add(key)
+            uniq.append(r)
+    return uniq
+
+
+def _is_under_allowed_shortform(path: Path) -> bool:
+    try:
+        resolved = path.resolve()
+    except Exception:
+        return False
+    for root in _shortform_allowed_roots():
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _resolve_clip_local_path(clip_id: int, source_type: str, local_path_override: str | None = None) -> dict:
     """Resolve the on-disk video path for a stored clip."""
+    if source_type == "anime" or (local_path_override and source_type in ("anime", "filesystem")):
+        raw = (local_path_override or "").strip()
+        if not raw:
+            return {"ok": False, "error": "local_path is required for anime clips"}
+        p = Path(raw)
+        if not p.is_file():
+            # Try mapping host-style paths onto the docker mount
+            name = p.name
+            for root in _shortform_allowed_roots():
+                out = root / "out" / name if root.name != "out" else root / name
+                if out.is_file():
+                    p = out
+                    break
+        if not p.is_file():
+            return {"ok": False, "error": f"anime clip not found: {raw}"}
+        if not _is_under_allowed_shortform(p):
+            return {"ok": False, "error": "local_path must be under short-form-pipeline"}
+        return {
+            "ok": True,
+            "local_path": str(p.resolve()),
+            "title": p.stem.replace("-", " ").replace("_", " "),
+        }
     if source_type == "arbitrage":
         row = db.execute_one(
             "SELECT id, local_path, youtube_title FROM arbitrage_assets WHERE id = %s",
@@ -303,7 +453,8 @@ def _publish_clip(body: dict) -> dict:
     Body:
       {
         "clip_id": 87,
-        "source_type": "video" | "arbitrage",
+        "source_type": "video" | "arbitrage" | "anime",
+        "local_path": "/short-form-pipeline/out/....mp4",  # required for anime
         "channels": ["tiktok","youtube","instagram"],
         "selected_accounts": {"tiktok": ["tiktok_xxx"]},   # optional
         "account_ids": ["tiktok_xxx"],                       # optional
@@ -315,16 +466,25 @@ def _publish_clip(body: dict) -> dict:
     """
     from scripts.adapters import media_host
 
-    clip_id = body.get("clip_id")
-    if clip_id is None:
-        return {"ok": False, "error": "clip_id is required"}
-    try:
-        clip_id = int(clip_id)
-    except (TypeError, ValueError):
-        return {"ok": False, "error": "clip_id must be an integer"}
-
     source_type = str(body.get("source_type") or "video").strip().lower()
-    resolved = _resolve_clip_local_path(clip_id, source_type)
+    local_path_override = body.get("local_path") or body.get("file_path")
+
+    clip_id = body.get("clip_id")
+    if source_type == "anime":
+        # Filesystem clips use a hash id; still accept any int for tracking.
+        try:
+            clip_id = int(clip_id) if clip_id is not None else 0
+        except (TypeError, ValueError):
+            clip_id = 0
+    else:
+        if clip_id is None:
+            return {"ok": False, "error": "clip_id is required"}
+        try:
+            clip_id = int(clip_id)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "clip_id must be an integer"}
+
+    resolved = _resolve_clip_local_path(clip_id, source_type, local_path_override)
     if not resolved.get("ok"):
         return resolved
 
@@ -638,6 +798,38 @@ ROUTES = {
     "/aitoearn/publish":        _aitoearn_publish,
     "/aitoearn/publish/status": _aitoearn_publish_status,
     "/aitoearn/publish/restrictions": _aitoearn_publish_restrictions,
+    # AiToEarn Open Platform — Seedance video workflow
+    "/aitoearn/seedance/workflow":   _aitoearn_seedance_workflow,
+    "/aitoearn/seedance/generate":   _aitoearn_seedance_generate,
+    "/aitoearn/seedance/status":     _aitoearn_seedance_status,
+    "/aitoearn/openplatform/video/models": _aitoearn_openplatform_video_models,
+    # Stickman viral animation (ElevenLabs + ffmpeg + Canva storyboard + Remotion)
+    "/stickman/workflow": _stickman_workflow,
+    # Stickman Flow — DeepSeek topics/script + Remotion motion/edit (no Google Flow)
+    "/stickman/flow": _stickman_flow,
+    # Video-prompting agent — story/premise -> scene-by-scene video plan
+    "/stickman/prompt": _stickman_prompt,
+    # Stickman AI panel library (categorized by action for reuse)
+    "/stickman/panels": _stickman_panel_library,
+    "/stickman/panel-library": _stickman_panel_library,
+    "/video/templates/research": _video_template_research,
+    "/video/templates": _video_template_research,
+    # Reddit → meme short → AiToEarn (short-form-pipeline bridge)
+    "/shortform/pipeline": _shortform_pipeline,
+    "/shortform/status": lambda body: shortform_pipeline.stage_status(body or {}),
+    # Anime theory Shorts (topic → AniList stills → AnimeTheory Remotion)
+    "/shortform/anime-theory": lambda body: shortform_pipeline.stage_anime_theory(body or {}),
+    "/shortform/anime_theory": lambda body: shortform_pipeline.stage_anime_theory(body or {}),
+    # Full E2E: script → render → caption → thumb → AiToEarn
+    "/shortform/anime-theory/pipeline": lambda body: shortform_pipeline.run_anime_theory_pipeline(
+        body or {}
+    ),
+    "/shortform/anime_theory/pipeline": lambda body: shortform_pipeline.run_anime_theory_pipeline(
+        body or {}
+    ),
+    # TikTok storytime → long meme video
+    "/shortform/tiktok-longform": _tiktok_longform,
+    "/tiktok/story-longform": _tiktok_longform,
     # Manual publish of a stored clip (resolves local file -> public URL -> fanout)
     # POST /publish/clip  { clip_id, source_type, channels?, selected_accounts?, ... }
     "/publish/clip":            _publish_clip,
@@ -828,12 +1020,24 @@ ROUTES = {
     # POST /hermes/viral-pipeline { provider?, background?, profile? }
     # Full pipeline: discover trends → draft brief → generate video → distribute → Claude health-check
     "/hermes/viral-pipeline": lambda body: hermes_agent.run_viral_pipeline(body),
+    # POST /hermes/anime-theory-pipeline { topic, anime?, context?, publish?, dry_run?, channels? }
+    # Full pipeline: script → Safebooru/TTS/Remotion → caption → thumb → AiToEarn
+    "/hermes/anime-theory-pipeline": lambda body: hermes_agent.run_anime_theory_pipeline(body),
+    "/hermes/anime_theory_pipeline": lambda body: hermes_agent.run_anime_theory_pipeline(body),
     # POST /hermes/link-publish { source_url|link|video_url, channels?, selected_accounts?, account_ids? ... }
     # Pipeline: source/download from provided link or channel -> publish fanout
     "/hermes/link-publish": lambda body: hermes_agent.run_link_publish_pipeline(body),
     # POST /hermes/discover-publish { objective, channels?, ... }
     # Pipeline: discover matching YouTube short from objective -> verify -> publish fanout
     "/hermes/discover-publish": lambda body: hermes_agent.run_discover_publish_pipeline(body),
+    # POST /hermes/learn-anime-style { channel?, limit?, rebuild_only? }
+    "/hermes/learn-anime-style": lambda body: hermes_agent.run_learn_anime_style(body),
+    # POST /hermes/learn-thumbnail-style { channel?, limit?, no_vision? }
+    # Hermes → shortform-thumbnail playbook (separate from script style)
+    "/hermes/learn-thumbnail-style": lambda body: hermes_agent.run_learn_thumbnail_style(body),
+    # POST /hermes/learn-channel-quality { channel?, limit?, scrape?, no_vision? }
+    # Hermes trains script + edit/pacing + music + thumbnails from competitor channel
+    "/hermes/learn-channel-quality": lambda body: hermes_agent.run_learn_channel_quality(body),
     # ── QwenPaw control plane ───────────────────────────────────────────────────
     "/qwenpaw/chat": lambda body: qwenpaw_client.chat(body),
     "/qwenpaw/status": lambda body: qwenpaw_client.status(),

@@ -32,3 +32,4 @@ TIMEOUT_PUBLISH = 300     # AiToEarn MCP fanout + status polling
 TIMEOUT_ENGAGE = 180      # Browser automation
 TIMEOUT_REPORT = 60       # DB queries
 TIMEOUT_FINANCE = 660     # Finance video generation (matches Hermes timeout)
+TIMEOUT_SEEDANCE = 900    # Seedance async video generation + poll

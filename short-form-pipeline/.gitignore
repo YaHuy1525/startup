@@ -1,0 +1,21 @@
+node_modules
+dist
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Ignore the output video from Git but not videos you import into src/.
+out/
+*.mp4
+
+# reddit_to_script runtime state (dedupe list, scratch files)
+reddit_to_script/work/
+work/
+
+# Generated per-job meme assets (TTS mp3s, downloaded clips, captions)
+public/assets/
+
+# Local research / style caches and scraped scripts
+data/
+payloads/

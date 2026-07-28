@@ -5,6 +5,11 @@ import { BrainrotFeed, brainrotFeedSchema } from "./BrainrotFeed";
 import { CharacterEdit, characterEditSchema } from "./CharacterEdit";
 import { ChapterRecap, chapterRecapSchema } from "./ChapterRecap";
 import { ProductPromo, productPromoSchema, calcProductPromoDuration } from "./ProductPromo";
+import {
+    StickFigureStory,
+    stickFigureStorySchema,
+    calcStickFigureStoryDuration,
+} from "./StickFigureStory";
 
 const FPS = 30;
 const WIDTH = 1080;
@@ -135,6 +140,34 @@ export const RemotionRoot: React.FC = () => {
                 }}
                 calculateMetadata={({ props }) => ({
                     durationInFrames: calcProductPromoDuration(props.features.length),
+                })}
+            />
+            <Composition
+                id="StickFigureStory"
+                component={StickFigureStory}
+                durationInFrames={FPS * 60}
+                fps={FPS}
+                width={WIDTH}
+                height={HEIGHT}
+                schema={stickFigureStorySchema}
+                defaultProps={{
+                    scenes: [],
+                    voiceoverSrc: null,
+                    titleText: "",
+                    paperBackgroundOpacity: 0,
+                    aspectLabel: "9:16",
+                    style: "rico",
+                    showCaptions: false,
+                    crossfadeFrames: 12,
+                }}
+                calculateMetadata={({ props }) => ({
+                    durationInFrames: Math.max(
+                        FPS * 15,
+                        calcStickFigureStoryDuration(
+                            props.scenes,
+                            props.crossfadeFrames ?? 12,
+                        ),
+                    ),
                 })}
             />
         </>
